@@ -44,6 +44,10 @@ pub struct SshTarget {
     /// usually refuse anything outside `AcceptEnv`, which is not an error.
     #[serde(default)]
     pub env: Vec<(String, String)>,
+    /// Hosts to tunnel through, nearest first, matching `ProxyJump` order.
+    /// Each is a full target so a jump host can have its own credentials.
+    #[serde(default)]
+    pub jumps: Vec<SshTarget>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -203,6 +207,44 @@ pub fn resolve_target(target: &SshTarget) -> Result<ResolvedTarget, String> {
     })
 }
 
+/// Parse one `ProxyJump` hop: `[user@]host[:port]`.
+///
+/// Returns the pieces rather than a target, because the caller supplies the
+/// default user and the auth methods to try.
+pub fn parse_jump(spec: &str) -> Result<(Option<String>, String, Option<u16>), String> {
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return Err("empty jump host".to_owned());
+    }
+    let (user, rest) = match spec.rsplit_once('@') {
+        Some((u, r)) => (Some(u.to_owned()), r),
+        None => (None, spec),
+    };
+    // An IPv6 literal must be bracketed for the port split to be unambiguous.
+    let (host, port) = if let Some(end) = rest.strip_prefix('[').and_then(|r| r.find(']').map(|i| (r, i))) {
+        let (inner, after) = end.0.split_at(end.1);
+        let port = after.strip_prefix("]:").map(str::to_owned);
+        (inner.to_owned(), port)
+    } else {
+        match rest.rsplit_once(':') {
+            // More than one colon and no brackets is a bare IPv6 address.
+            Some((h, p)) if !h.contains(':') => (h.to_owned(), Some(p.to_owned())),
+            _ => (rest.to_owned(), None),
+        }
+    };
+    let port = match port {
+        Some(p) => Some(
+            p.parse::<u16>()
+                .map_err(|_| format!("invalid jump port: {p}"))?,
+        ),
+        None => None,
+    };
+    if host.trim().is_empty() {
+        return Err("empty jump host".to_owned());
+    }
+    Ok((user, host, port))
+}
+
 /// Single-quote a remote path for a POSIX shell. The remote side is not
 /// necessarily POSIX, but `cd` into an unquoted path with a space is broken
 /// everywhere, and embedded quotes are the injection vector that matters.
@@ -241,6 +283,7 @@ mod tests {
             connect_timeout_secs: None,
             compression: None,
             env: Vec::new(),
+            jumps: Vec::new(),
         }
     }
 
@@ -370,6 +413,51 @@ mod tests {
             }
         );
         assert_eq!(clamp_geometry(80, 24), PtyGeometry { cols: 80, rows: 24 });
+    }
+
+    #[test]
+    fn parses_a_bare_jump_host() {
+        assert_eq!(
+            parse_jump("bastion.example").unwrap(),
+            (None, "bastion.example".to_owned(), None)
+        );
+    }
+
+    #[test]
+    fn parses_a_jump_host_with_user_and_port() {
+        assert_eq!(
+            parse_jump("ops@bastion.example:2222").unwrap(),
+            (
+                Some("ops".to_owned()),
+                "bastion.example".to_owned(),
+                Some(2222)
+            )
+        );
+    }
+
+    #[test]
+    fn parses_a_bracketed_ipv6_jump_host() {
+        assert_eq!(
+            parse_jump("me@[::1]:2222").unwrap(),
+            (Some("me".to_owned()), "::1".to_owned(), Some(2222))
+        );
+    }
+
+    #[test]
+    fn treats_a_bare_ipv6_address_as_a_host_without_a_port() {
+        // Splitting on the last colon would otherwise turn `::1` into `:` + `1`.
+        assert_eq!(
+            parse_jump("fe80::1").unwrap(),
+            (None, "fe80::1".to_owned(), None)
+        );
+    }
+
+    #[test]
+    fn rejects_an_empty_or_malformed_jump() {
+        assert!(parse_jump("").is_err());
+        assert!(parse_jump("   ").is_err());
+        assert!(parse_jump("me@").is_err());
+        assert!(parse_jump("host:notaport").is_err());
     }
 
     #[test]

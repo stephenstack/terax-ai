@@ -242,6 +242,7 @@ pub fn run() {
             remote::set_global(state.clone());
             state
         })
+        .manage(remote::forward::TunnelState::default())
         .manage(secrets::SecretsState::default())
         .manage(fs::watch::FsWatchState::default())
         .manage(history::HistoryState::default())
@@ -285,6 +286,10 @@ pub fn run() {
             remote::remote_close,
             remote::remote_close_all,
             remote::remote_authorize,
+            remote::tunnel_open,
+            remote::tunnel_close,
+            remote::tunnel_list,
+            remote::tunnel_close_all,
             fs::tree::list_subdirs,
             fs::tree::fs_read_dir,
             fs::file::fs_read_file,

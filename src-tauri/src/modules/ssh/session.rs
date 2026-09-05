@@ -579,6 +579,23 @@ pub async fn connect_authenticated(
     target: &SshTarget,
     bus: &Arc<PromptBus>,
 ) -> Result<(client::Handle<Handler>, ResolvedTarget), String> {
+    // Boxed: this recurses through the jump chain, and an async fn cannot
+    // hold an infinitely sized future.
+    Box::pin(connect_through(target, bus, 0)).await
+}
+
+/// A chain longer than this is a configuration mistake, and each hop is a
+/// full handshake.
+const MAX_JUMPS: usize = 8;
+
+async fn connect_through(
+    target: &SshTarget,
+    bus: &Arc<PromptBus>,
+    depth: usize,
+) -> Result<(client::Handle<Handler>, ResolvedTarget), String> {
+    if depth > MAX_JUMPS {
+        return Err(format!("more than {MAX_JUMPS} jump hosts"));
+    }
     let resolved = target::resolve_target(target)?;
     let known_hosts = hostkey::default_known_hosts_path()?;
 
@@ -595,19 +612,77 @@ pub async fn connect_authenticated(
     };
 
     let config = Arc::new(client_config(&resolved));
-    let connect = client::connect(config, resolved.addr.clone(), handler);
-    let mut handle = tokio::time::timeout(
-        Duration::from_secs(resolved.connect_timeout_secs as u64),
-        connect,
-    )
-    .await
-    .map_err(|_| {
-        format!(
-            "timed out connecting to {} after {}s",
-            resolved.addr, resolved.connect_timeout_secs
+    let timeout = Duration::from_secs(resolved.connect_timeout_secs as u64);
+
+    let mut handle = match target.jumps.first() {
+        None => tokio::time::timeout(
+            timeout,
+            client::connect(config, resolved.addr.clone(), handler),
         )
-    })?
-    .map_err(|e| format!("could not connect to {}: {e}", resolved.addr))?;
+        .await
+        .map_err(|_| {
+            format!(
+                "timed out connecting to {} after {}s",
+                resolved.addr, resolved.connect_timeout_secs
+            )
+        })?
+        .map_err(|e| format!("could not connect to {}: {e}", resolved.addr))?,
+
+        Some(first) => {
+            // Connect the nearest hop first, carrying the rest of the chain,
+            // then tunnel to this target over a channel on it. The jump
+            // handle has to outlive the tunnel, so it rides along in the
+            // stream the inner session reads from.
+            let mut hop = first.clone();
+            hop.jumps = target.jumps[1..].to_vec();
+            let (jump_handle, jump_resolved) =
+                Box::pin(connect_through(&hop, bus, depth + 1)).await?;
+
+            let channel = jump_handle
+                .channel_open_direct_tcpip(
+                    resolved.host.clone(),
+                    resolved.port as u32,
+                    "127.0.0.1",
+                    0,
+                )
+                .await
+                .map_err(|e| {
+                    // A refused direct-tcpip is nearly always the jump host's
+                    // `AllowTcpForwarding no`, which the raw error does not say.
+                    let hint = if e.to_string().contains("AdministrativelyProhibited") {
+                        " (the jump host refused forwarding; it likely has AllowTcpForwarding disabled)"
+                    } else {
+                        ""
+                    };
+                    format!(
+                        "{} could not reach {}: {e}{hint}",
+                        jump_resolved.addr, resolved.addr
+                    )
+                })?;
+
+            bus.emit(SshEvent::Phase {
+                phase: "connecting",
+            });
+            let stream = JumpStream {
+                inner: channel.into_stream(),
+                _jump: jump_handle,
+            };
+            tokio::time::timeout(timeout, client::connect_stream(config, stream, handler))
+                .await
+                .map_err(|_| {
+                    format!(
+                        "timed out connecting to {} through {} after {}s",
+                        resolved.addr, jump_resolved.addr, resolved.connect_timeout_secs
+                    )
+                })?
+                .map_err(|e| {
+                    format!(
+                        "could not connect to {} through {}: {e}",
+                        resolved.addr, jump_resolved.addr
+                    )
+                })?
+        }
+    };
 
     bus.emit(SshEvent::Phase {
         phase: "authenticating",
@@ -615,6 +690,53 @@ pub async fn connect_authenticated(
     authenticate(&mut handle, &resolved, bus).await?;
 
     Ok((handle, resolved))
+}
+
+/// The tunnelled stream, plus the jump connection it runs over.
+///
+/// Dropping the jump handle would tear down the channel underneath the inner
+/// session, so it is owned here and lives exactly as long as the stream.
+struct JumpStream<S> {
+    inner: S,
+    _jump: client::Handle<Handler>,
+}
+
+impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for JumpStream<S> {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        std::pin::Pin::new(&mut this.inner).poll_read(cx, buf)
+    }
+}
+
+impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for JumpStream<S> {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let this = self.get_mut();
+        std::pin::Pin::new(&mut this.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        std::pin::Pin::new(&mut this.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        std::pin::Pin::new(&mut this.inner).poll_shutdown(cx)
+    }
 }
 
 /// Connect and hand back a live session. Returns only once the shell channel

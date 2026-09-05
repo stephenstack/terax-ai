@@ -7,6 +7,7 @@
 
 pub mod conn;
 pub mod exec;
+pub mod forward;
 pub mod fs;
 pub mod path;
 
@@ -138,7 +139,14 @@ pub fn remote_prompt_respond(
 }
 
 #[tauri::command]
-pub async fn remote_close(state: tauri::State<'_, Arc<RemoteState>>, id: u32) -> Result<(), String> {
+pub async fn remote_close(
+    state: tauri::State<'_, Arc<RemoteState>>,
+    tunnels: tauri::State<'_, forward::TunnelState>,
+    id: u32,
+) -> Result<(), String> {
+    // A forward on a dead connection would accept sockets and immediately
+    // fail every one of them.
+    tunnels.close_for_conn(id).await;
     if let Some(bus) = state.pending.lock().unwrap().remove(&id) {
         bus.cancel_all();
         state.closed_while_opening.lock().unwrap().insert(id);
@@ -173,6 +181,37 @@ pub async fn remote_close_all(state: tauri::State<'_, RemoteState>) -> Result<us
         log::info!("remote_close_all: reaped {count} connection(s)");
     }
     Ok(count)
+}
+
+#[tauri::command]
+pub async fn tunnel_open(
+    state: tauri::State<'_, Arc<RemoteState>>,
+    tunnels: tauri::State<'_, forward::TunnelState>,
+    conn: u32,
+    spec: forward::ForwardSpec,
+) -> Result<forward::ForwardInfo, String> {
+    let c = state.require(conn)?;
+    forward::open_local(&tunnels, conn, c, &spec).await
+}
+
+#[tauri::command]
+pub async fn tunnel_close(
+    tunnels: tauri::State<'_, forward::TunnelState>,
+    id: u32,
+) -> Result<bool, String> {
+    Ok(tunnels.close(id).await)
+}
+
+#[tauri::command]
+pub fn tunnel_list(tunnels: tauri::State<forward::TunnelState>) -> Vec<forward::ForwardInfo> {
+    tunnels.list()
+}
+
+#[tauri::command]
+pub async fn tunnel_close_all(
+    tunnels: tauri::State<'_, forward::TunnelState>,
+) -> Result<usize, String> {
+    Ok(tunnels.close_all().await)
 }
 
 /// Register a directory as an open remote workspace root and hand back its

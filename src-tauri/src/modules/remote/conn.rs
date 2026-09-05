@@ -164,6 +164,20 @@ impl RemoteConn {
         })
     }
 
+    /// Open a `direct-tcpip` channel: the far side makes the TCP connection,
+    /// which is what lets a forward reach a service on the remote's loopback.
+    pub async fn open_forward_channel(
+        &self,
+        host: &str,
+        port: u16,
+        originator: &str,
+    ) -> Result<russh::Channel<client::Msg>, String> {
+        self.handle
+            .channel_open_direct_tcpip(host.to_owned(), port as u32, originator.to_owned(), 0)
+            .await
+            .map_err(|e| format!("could not open a forward to {host}:{port}: {e}"))
+    }
+
     pub async fn disconnect(&self) {
         let _ = self
             .handle

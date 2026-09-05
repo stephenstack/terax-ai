@@ -49,6 +49,7 @@ async fn connect(e: &Env) -> RemoteConn {
         connect_timeout_secs: Some(15),
         compression: None,
         env: Vec::new(),
+        jumps: Vec::new(),
     };
     let bus = Arc::new(PromptBus::new(Channel::new(|_| Ok(()))));
     RemoteConn::open(&target, &bus)
@@ -241,4 +242,217 @@ live!(exec_separates_stdout_from_stderr, c, _e, {
     let out = c.exec("echo out; echo err 1>&2").await.expect("exec");
     assert_eq!(out.stdout_text().trim(), "out");
     assert_eq!(out.stderr_text().trim(), "err");
+});
+
+// --- ProxyJump ------------------------------------------------------------
+//
+// Set TERAX_TEST_JUMP to a bastion `[user@]host:port`; TERAX_TEST_SSH then
+// names a target reachable *only* from that bastion, so a pass proves the
+// connection was actually tunnelled rather than made directly.
+
+fn jump_env() -> Option<(Env, String)> {
+    let e = env()?;
+    let jump = std::env::var("TERAX_TEST_JUMP").ok()?;
+    Some((e, jump))
+}
+
+#[test]
+fn connects_through_a_jump_host() {
+    let Some((e, jump)) = jump_env() else {
+        eprintln!("skipping: TERAX_TEST_JUMP not set");
+        return;
+    };
+    let (jump_user, jump_host, jump_port) =
+        terax_lib::modules::ssh::target::parse_jump(&jump).expect("parse jump");
+
+    let hop = SshTarget {
+        host: jump_host,
+        port: jump_port,
+        user: jump_user.unwrap_or_else(|| e.user.clone()),
+        auth: vec![AuthMethod::Password {
+            password: Some(e.pass.clone()),
+        }],
+        term: None,
+        cwd: None,
+        command: None,
+        keepalive_secs: None,
+        connect_timeout_secs: Some(15),
+        compression: None,
+        env: Vec::new(),
+        jumps: Vec::new(),
+    };
+    let target = SshTarget {
+        host: e.host.clone(),
+        port: Some(e.port),
+        user: e.user.clone(),
+        auth: vec![AuthMethod::Password {
+            password: Some(e.pass.clone()),
+        }],
+        term: None,
+        cwd: None,
+        command: None,
+        keepalive_secs: None,
+        connect_timeout_secs: Some(15),
+        compression: None,
+        env: Vec::new(),
+        jumps: vec![hop],
+    };
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let bus = Arc::new(PromptBus::new(Channel::new(|_| Ok(()))));
+        let c = RemoteConn::open(&target, &bus)
+            .await
+            .expect("connect through the jump host");
+
+        // Content that only exists on the far side of the bastion.
+        let out = c.exec("cat /config/inner/secret.txt").await.expect("exec");
+        assert!(out.ok(), "stderr: {}", out.stderr_text());
+        assert_eq!(out.stdout_text().trim(), "behind the bastion");
+
+        // And SFTP works over the tunnel, not just exec.
+        let entries = fs::read_dir(&c, "/config/inner", false).await.expect("read_dir");
+        assert!(entries.iter().any(|x| x.name == "secret.txt"));
+    });
+}
+
+#[test]
+fn a_direct_connection_to_the_jump_only_target_fails() {
+    let Some((e, _)) = jump_env() else {
+        eprintln!("skipping: TERAX_TEST_JUMP not set");
+        return;
+    };
+    // Guards the test above: if the target were reachable directly, a pass
+    // there would prove nothing about tunnelling.
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let target = SshTarget {
+            host: e.host.clone(),
+            port: Some(e.port),
+            user: e.user.clone(),
+            auth: vec![AuthMethod::Password {
+                password: Some(e.pass.clone()),
+            }],
+            term: None,
+            cwd: None,
+            command: None,
+            keepalive_secs: None,
+            connect_timeout_secs: Some(5),
+            compression: None,
+            env: Vec::new(),
+            jumps: Vec::new(),
+        };
+        let bus = Arc::new(PromptBus::new(Channel::new(|_| Ok(()))));
+        assert!(
+            RemoteConn::open(&target, &bus).await.is_err(),
+            "the target must not be reachable without the jump host"
+        );
+    });
+}
+
+// --- Local port forwarding ------------------------------------------------
+//
+// TERAX_TEST_FORWARD_PORT names a port bound to the *remote's* loopback, so it
+// is unreachable from this machine except through the tunnel.
+
+live!(forwards_a_local_port_to_the_remote_loopback, c, _e, {
+    let Ok(port) = std::env::var("TERAX_TEST_FORWARD_PORT") else {
+        eprintln!("skipping: TERAX_TEST_FORWARD_PORT not set");
+        return;
+    };
+    let remote_port: u16 = port.parse().expect("port");
+
+    let tunnels = terax_lib::modules::remote::forward::TunnelState::default();
+    let spec = terax_lib::modules::remote::forward::ForwardSpec {
+        bind_address: None,
+        // 0 asks the OS for a free port, so the test cannot clash with
+        // anything already listening here.
+        local_port: 0,
+        remote_host: "127.0.0.1".into(),
+        remote_port,
+    };
+
+    let info = terax_lib::modules::remote::forward::open_local(
+        &tunnels,
+        1,
+        std::sync::Arc::new(c),
+        &spec,
+    )
+    .await
+    .expect("open forward");
+
+    assert_eq!(info.bind_address, "127.0.0.1", "must default to loopback");
+    assert_ne!(info.local_port, 0, "the bound port must be reported back");
+    assert_eq!(tunnels.list().len(), 1);
+
+    // Reach the remote-only service through the tunnel.
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut sock = tokio::net::TcpStream::connect(("127.0.0.1", info.local_port))
+        .await
+        .expect("connect through the forward");
+    sock.write_all(b"GET / HTTP/1.0\r\n\r\n").await.expect("write");
+    // Read until the marker appears rather than to EOF: the remote service
+    // holds the connection open, so waiting for EOF would always time out.
+    let mut buf = Vec::new();
+    let text = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        let mut chunk = [0u8; 1024];
+        loop {
+            let n = sock.read(&mut chunk).await.expect("read");
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            let seen = String::from_utf8_lossy(&buf).into_owned();
+            if seen.contains("remote service alive") {
+                return seen;
+            }
+        }
+        String::from_utf8_lossy(&buf).into_owned()
+    })
+    .await
+    .expect("the forward did not deliver a response in time");
+    assert!(
+        text.contains("remote service alive"),
+        "expected the remote service's response, got {text:?}"
+    );
+
+    // Closing must free the listener, not leave it accepting.
+    assert!(tunnels.close(info.id).await);
+    assert!(tunnels.list().is_empty());
+    let after = tokio::net::TcpStream::connect(("127.0.0.1", info.local_port)).await;
+    assert!(after.is_err(), "the port must be released on close");
+});
+
+live!(a_forward_needs_a_remote_host_and_port, c, _e, {
+    let tunnels = terax_lib::modules::remote::forward::TunnelState::default();
+    let conn = std::sync::Arc::new(c);
+    let bad_host = terax_lib::modules::remote::forward::ForwardSpec {
+        bind_address: None,
+        local_port: 0,
+        remote_host: "  ".into(),
+        remote_port: 80,
+    };
+    assert!(
+        terax_lib::modules::remote::forward::open_local(&tunnels, 1, conn.clone(), &bad_host)
+            .await
+            .is_err()
+    );
+    let bad_port = terax_lib::modules::remote::forward::ForwardSpec {
+        bind_address: None,
+        local_port: 0,
+        remote_host: "127.0.0.1".into(),
+        remote_port: 0,
+    };
+    assert!(
+        terax_lib::modules::remote::forward::open_local(&tunnels, 1, conn, &bad_port)
+            .await
+            .is_err()
+    );
+    assert!(tunnels.list().is_empty(), "a rejected spec must not register");
 });
