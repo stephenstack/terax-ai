@@ -222,7 +222,7 @@ fn remove_path(path: &Path) -> io::Result<()> {
 pub async fn fs_create_file(
     path: String,
     workspace: Option<WorkspaceEnv>,
-    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
 ) -> Result<(), String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     if let Some(conn) = workspace.remote_conn() {
@@ -231,6 +231,14 @@ pub async fn fs_create_file(
         c.authorize_mutation(&p)?;
         return crate::modules::remote::fs::create_file(&c, &p).await;
     }
+    fs_create_file_local(path, Some(workspace))
+}
+
+pub fn fs_create_file_local(
+    path: String,
+    workspace: Option<WorkspaceEnv>,
+) -> Result<(), String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
     let p = resolve_path(&path, &workspace);
     if p.exists() {
         return Err(format!("already exists: {}", p.display()));
@@ -248,7 +256,7 @@ pub async fn fs_create_file(
 pub async fn fs_create_dir(
     path: String,
     workspace: Option<WorkspaceEnv>,
-    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
 ) -> Result<(), String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     if let Some(conn) = workspace.remote_conn() {
@@ -257,6 +265,14 @@ pub async fn fs_create_dir(
         c.authorize_mutation(&p)?;
         return crate::modules::remote::fs::create_dir(&c, &p).await;
     }
+    fs_create_dir_local(path, Some(workspace))
+}
+
+pub fn fs_create_dir_local(
+    path: String,
+    workspace: Option<WorkspaceEnv>,
+) -> Result<(), String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
     let p = resolve_path(&path, &workspace);
     if p.exists() {
         return Err(format!("already exists: {}", p.display()));
@@ -273,7 +289,7 @@ pub async fn fs_rename(
     from: String,
     to: String,
     workspace: Option<WorkspaceEnv>,
-    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
 ) -> Result<(), String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     if let Some(conn) = workspace.remote_conn() {
@@ -284,6 +300,15 @@ pub async fn fs_rename(
         c.authorize_mutation(&to_r)?;
         return crate::modules::remote::fs::rename(&c, &from_r, &to_r).await;
     }
+    fs_rename_local(from, to, Some(workspace))
+}
+
+pub fn fs_rename_local(
+    from: String,
+    to: String,
+    workspace: Option<WorkspaceEnv>,
+) -> Result<(), String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
     let from_p = resolve_path(&from, &workspace);
     let to_p = resolve_path(&to, &workspace);
     if !from_p.exists() {
@@ -379,7 +404,7 @@ fn fs_move_impl(
 pub async fn fs_delete(
     path: String,
     workspace: Option<WorkspaceEnv>,
-    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
 ) -> Result<(), String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     if let Some(conn) = workspace.remote_conn() {
@@ -388,6 +413,11 @@ pub async fn fs_delete(
         c.authorize_mutation(&p)?;
         return crate::modules::remote::fs::delete(&c, std::slice::from_ref(&p)).await;
     }
+    fs_delete_local(path, Some(workspace))
+}
+
+pub fn fs_delete_local(path: String, workspace: Option<WorkspaceEnv>) -> Result<(), String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
     let p = resolve_path(&path, &workspace);
     remove_path(&p).map_err(|e| {
         log::warn!("fs_delete({}) failed: {e}", p.display());
@@ -401,7 +431,7 @@ pub async fn fs_delete_batch(
     root: String,
     workspace: Option<WorkspaceEnv>,
     registry: tauri::State<'_, WorkspaceRegistry>,
-    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
     // Tauri requires an async command taking references to return a Result.
     // This one never fails: per-entry outcomes are reported in the counts, and
     // the caller has no rejection path.
@@ -505,7 +535,7 @@ pub async fn fs_copy(
     sources: Vec<String>,
     dest_dir: String,
     workspace: Option<WorkspaceEnv>,
-    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
 ) -> Result<(), String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     if let Some(conn) = workspace.remote_conn() {
@@ -516,6 +546,15 @@ pub async fn fs_copy(
         // than a server-side copy.
         return crate::modules::remote::fs::upload(&c, &sources, &dest).await;
     }
+    fs_copy_local(sources, dest_dir, Some(workspace))
+}
+
+pub fn fs_copy_local(
+    sources: Vec<String>,
+    dest_dir: String,
+    workspace: Option<WorkspaceEnv>,
+) -> Result<(), String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
     let dest = resolve_path(&dest_dir, &workspace);
     for source in &sources {
         let src = std::path::PathBuf::from(source);
@@ -573,13 +612,13 @@ mod tests {
     fn create_file_makes_empty_and_refuses_to_clobber() {
         let dir = tempfile::tempdir().unwrap();
         let f = dir.path().join("new.txt");
-        fs_create_file(s(f.clone()), None).expect("create");
+        fs_create_file_local(s(f.clone()), None).expect("create");
         assert!(f.exists());
         assert_eq!(std::fs::read(&f).unwrap(), b"");
 
         // A second create must error, not truncate existing content.
         std::fs::write(&f, b"data").unwrap();
-        let err = fs_create_file(s(f.clone()), None).unwrap_err();
+        let err = fs_create_file_local(s(f.clone()), None).unwrap_err();
         assert!(err.contains("already exists"), "got: {err}");
         assert_eq!(std::fs::read(&f).unwrap(), b"data");
     }
@@ -588,9 +627,9 @@ mod tests {
     fn create_dir_builds_nested_chain_and_refuses_existing() {
         let dir = tempfile::tempdir().unwrap();
         let nested = dir.path().join("a/b/c");
-        fs_create_dir(s(nested.clone()), None).expect("create dir");
+        fs_create_dir_local(s(nested.clone()), None).expect("create dir");
         assert!(nested.is_dir());
-        let err = fs_create_dir(s(nested), None).unwrap_err();
+        let err = fs_create_dir_local(s(nested), None).unwrap_err();
         assert!(err.contains("already exists"), "got: {err}");
     }
 
@@ -601,18 +640,18 @@ mod tests {
         let to = dir.path().join("b.txt");
         std::fs::write(&from, b"payload").unwrap();
 
-        fs_rename(s(from.clone()), s(to.clone()), None).expect("rename");
+        fs_rename_local(s(from.clone()), s(to.clone()), None).expect("rename");
         assert!(!from.exists());
         assert_eq!(std::fs::read(&to).unwrap(), b"payload");
 
         // Missing source is reported, not silently ignored.
-        let err = fs_rename(s(from), s(dir.path().join("c.txt")), None).unwrap_err();
+        let err = fs_rename_local(s(from), s(dir.path().join("c.txt")), None).unwrap_err();
         assert!(err.contains("not found"), "got: {err}");
 
         // Refusing to overwrite an existing target is the data-loss guard.
         let occupied = dir.path().join("keep.txt");
         std::fs::write(&occupied, b"keep").unwrap();
-        let err = fs_rename(s(to.clone()), s(occupied.clone()), None).unwrap_err();
+        let err = fs_rename_local(s(to.clone()), s(occupied.clone()), None).unwrap_err();
         assert!(err.contains("already exists"), "got: {err}");
         assert_eq!(std::fs::read(&occupied).unwrap(), b"keep");
         assert!(to.exists());
@@ -746,7 +785,7 @@ mod tests {
         std::fs::create_dir_all(src.path().join("d/inner")).unwrap();
         std::fs::write(src.path().join("d/inner/y.txt"), b"y").unwrap();
 
-        fs_copy(
+        fs_copy_local(
             vec![s(src.path().join("a.txt")), s(src.path().join("d"))],
             s(dest.path().to_path_buf()),
             None,
@@ -764,7 +803,7 @@ mod tests {
         // copy, not move: the source survives.
         assert!(src.path().join("a.txt").exists());
 
-        let err = fs_copy(
+        let err = fs_copy_local(
             vec![s(src.path().join("a.txt"))],
             s(dest.path().to_path_buf()),
             None,
@@ -778,16 +817,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let f = dir.path().join("x.txt");
         std::fs::write(&f, b"x").unwrap();
-        fs_delete(s(f.clone()), None).expect("delete file");
+        fs_delete_local(s(f.clone()), None).expect("delete file");
         assert!(!f.exists());
 
         let sub = dir.path().join("sub");
         std::fs::create_dir_all(sub.join("inner")).unwrap();
         std::fs::write(sub.join("inner/y.txt"), b"y").unwrap();
-        fs_delete(s(sub.clone()), None).expect("delete dir");
+        fs_delete_local(s(sub.clone()), None).expect("delete dir");
         assert!(!sub.exists());
 
-        let err = fs_delete(s(dir.path().join("missing")), None).unwrap_err();
+        let err = fs_delete_local(s(dir.path().join("missing")), None).unwrap_err();
         assert!(!err.is_empty());
     }
 
@@ -823,7 +862,7 @@ mod tests {
         let link = dir.path().join("link");
         std::os::unix::fs::symlink(&real, &link).unwrap();
 
-        fs_delete(s(link.clone()), None).expect("delete symlink");
+        fs_delete_local(s(link.clone()), None).expect("delete symlink");
         assert!(!link.exists(), "symlink itself should be gone");
         assert!(real.is_dir(), "target dir must survive");
         assert_eq!(std::fs::read(real.join("keep.txt")).unwrap(), b"keep");

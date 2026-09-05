@@ -14,17 +14,28 @@ use tokio::sync::Mutex;
 use crate::modules::ssh::session::{connect_authenticated, Handler, PromptBus};
 use crate::modules::ssh::target::SshTarget;
 
-/// Output of a remote command. Mirrors what the local `shell` module returns
-/// so the git parsers can be reused unchanged.
+/// Output of a remote command. Bytes, not text: a git diff can carry content
+/// that is not valid UTF-8, and a lossy conversion would corrupt it.
 pub struct ExecOutput {
-    pub stdout: String,
-    pub stderr: String,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
     pub code: i32,
+    /// True when output hit the cap and was cut short.
+    pub truncated: bool,
 }
 
 impl ExecOutput {
     pub fn ok(&self) -> bool {
         self.code == 0
+    }
+
+    /// Lossy text, for callers that only ever deal in paths and messages.
+    pub fn stdout_text(&self) -> String {
+        String::from_utf8_lossy(&self.stdout).into_owned()
+    }
+
+    pub fn stderr_text(&self) -> String {
+        String::from_utf8_lossy(&self.stderr).into_owned()
     }
 }
 
@@ -132,7 +143,7 @@ impl RemoteConn {
                     }
                 }
                 // ext 1 is stderr; anything else is not something we asked for.
-                ChannelMsg::ExtendedData { data, ext } if ext == 1 => {
+                ChannelMsg::ExtendedData { data, ext: 1 } => {
                     if stderr.len() + data.len() <= MAX_EXEC_OUTPUT {
                         stderr.extend_from_slice(&data);
                     }
@@ -143,14 +154,11 @@ impl RemoteConn {
             }
         }
 
-        if truncated {
-            return Err("the remote command produced too much output".to_owned());
-        }
-
         Ok(ExecOutput {
-            stdout: String::from_utf8_lossy(&stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&stderr).into_owned(),
+            stdout,
+            stderr,
             code,
+            truncated,
         })
     }
 

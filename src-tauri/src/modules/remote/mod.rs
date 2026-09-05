@@ -20,6 +20,18 @@ use crate::modules::ssh::session::{PromptBus, SshEvent};
 use crate::modules::ssh::target::SshTarget;
 use conn::RemoteConn;
 
+/// A handle to the managed state for callers that cannot take `tauri::State`,
+/// notably the synchronous git process layer.
+static GLOBAL: std::sync::OnceLock<Arc<RemoteState>> = std::sync::OnceLock::new();
+
+pub fn set_global(state: Arc<RemoteState>) {
+    let _ = GLOBAL.set(state);
+}
+
+pub fn global() -> Option<&'static Arc<RemoteState>> {
+    GLOBAL.get()
+}
+
 pub struct RemoteState {
     conns: RwLock<HashMap<u32, Arc<RemoteConn>>>,
     /// Prompt buses for connections still handshaking, for the same reason
@@ -64,13 +76,13 @@ pub struct RemoteOpened {
 }
 
 #[tauri::command]
-pub fn remote_reserve(state: tauri::State<RemoteState>) -> u32 {
+pub fn remote_reserve(state: tauri::State<Arc<RemoteState>>) -> u32 {
     state.next_id.fetch_add(1, Ordering::Relaxed)
 }
 
 #[tauri::command]
 pub async fn remote_open(
-    state: tauri::State<'_, RemoteState>,
+    state: tauri::State<'_, Arc<RemoteState>>,
     id: u32,
     target: SshTarget,
     on_event: Channel<SshEvent>,
@@ -110,7 +122,7 @@ pub async fn remote_open(
 /// Only in-flight handshakes ask questions, so this looks nowhere else.
 #[tauri::command]
 pub fn remote_prompt_respond(
-    state: tauri::State<RemoteState>,
+    state: tauri::State<Arc<RemoteState>>,
     id: u32,
     prompt_id: u64,
     value: Option<String>,
@@ -126,7 +138,7 @@ pub fn remote_prompt_respond(
 }
 
 #[tauri::command]
-pub async fn remote_close(state: tauri::State<'_, RemoteState>, id: u32) -> Result<(), String> {
+pub async fn remote_close(state: tauri::State<'_, Arc<RemoteState>>, id: u32) -> Result<(), String> {
     if let Some(bus) = state.pending.lock().unwrap().remove(&id) {
         bus.cancel_all();
         state.closed_while_opening.lock().unwrap().insert(id);
@@ -167,7 +179,7 @@ pub async fn remote_close_all(state: tauri::State<'_, RemoteState>) -> Result<us
 /// canonical form, mirroring `workspace_authorize` for the local case.
 #[tauri::command]
 pub async fn remote_authorize(
-    state: tauri::State<'_, RemoteState>,
+    state: tauri::State<'_, Arc<RemoteState>>,
     conn: u32,
     path: String,
 ) -> Result<String, String> {

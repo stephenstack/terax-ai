@@ -235,7 +235,13 @@ pub fn run() {
         .manage(control_state)
         .manage(shell::ShellState::default())
         .manage(ssh::SshState::default())
-        .manage(remote::RemoteState::default())
+        .manage({
+            let state = std::sync::Arc::new(remote::RemoteState::default());
+            // The git process layer is synchronous and cannot take
+            // `tauri::State`, so it reaches the same instance through here.
+            remote::set_global(state.clone());
+            state
+        })
         .manage(secrets::SecretsState::default())
         .manage(fs::watch::FsWatchState::default())
         .manage(history::HistoryState::default())

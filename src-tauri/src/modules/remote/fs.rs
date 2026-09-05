@@ -5,10 +5,21 @@
 
 use russh_sftp::protocol::{FileType, OpenFlags};
 
-use super::conn::RemoteConn;
+use super::conn::{ExecOutput, RemoteConn};
 use super::path;
 use crate::modules::fs::file::{FileStat, ReadResult, StatKind, FORCE_MAX_READ_BYTES, MAX_READ_BYTES};
 use crate::modules::fs::tree::{DirEntry, EntryKind};
+
+/// Prefer the server's own message; fall back to ours when it said nothing.
+fn remote_error(out: &ExecOutput, fallback: &str) -> String {
+    let stderr = out.stderr_text();
+    let trimmed = stderr.trim();
+    if trimmed.is_empty() {
+        fallback.to_owned()
+    } else {
+        trimmed.to_owned()
+    }
+}
 
 fn kind_of(ty: FileType, was_symlink: bool) -> EntryKind {
     if was_symlink {
@@ -226,11 +237,7 @@ pub async fn delete(conn: &RemoteConn, targets: &[String]) -> Result<(), String>
     if out.ok() {
         Ok(())
     } else {
-        Err(if out.stderr.trim().is_empty() {
-            "could not delete".to_owned()
-        } else {
-            out.stderr.trim().to_owned()
-        })
+        Err(remote_error(&out, "could not delete"))
     }
 }
 
@@ -317,10 +324,6 @@ pub async fn copy(conn: &RemoteConn, from: &str, to: &str) -> Result<(), String>
     if out.ok() {
         Ok(())
     } else {
-        Err(if out.stderr.trim().is_empty() {
-            format!("could not copy {from}")
-        } else {
-            out.stderr.trim().to_owned()
-        })
+        Err(remote_error(&out, &format!("could not copy {from}")))
     }
 }

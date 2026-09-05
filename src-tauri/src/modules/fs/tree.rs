@@ -136,7 +136,7 @@ pub async fn fs_read_dir(
     show_hidden: bool,
     git_decorations: Option<bool>,
     workspace: Option<WorkspaceEnv>,
-    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
 ) -> Result<Vec<DirEntry>, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     if let Some(conn) = workspace.remote_conn() {
@@ -144,6 +144,18 @@ pub async fn fs_read_dir(
         let dir = crate::modules::remote::resolve(&c, &path);
         return crate::modules::remote::fs::read_dir(&c, &dir, show_hidden).await;
     }
+    fs_read_dir_local(path, show_hidden, git_decorations, Some(workspace))
+}
+
+/// The local implementation, kept callable on its own so the command stays a
+/// thin dispatcher and the behaviour remains directly testable.
+pub fn fs_read_dir_local(
+    path: String,
+    show_hidden: bool,
+    git_decorations: Option<bool>,
+    workspace: Option<WorkspaceEnv>,
+) -> Result<Vec<DirEntry>, String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
     let root = resolve_path(&path, &workspace);
     let read = std::fs::read_dir(&root).map_err(|e| {
         log::debug!("fs_read_dir({}) failed: {e}", root.display());
@@ -228,7 +240,7 @@ pub async fn list_subdirs(
     path: String,
     show_hidden: bool,
     workspace: Option<WorkspaceEnv>,
-    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
 ) -> Result<Vec<String>, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     if let Some(conn) = workspace.remote_conn() {
@@ -236,6 +248,15 @@ pub async fn list_subdirs(
         let dir = crate::modules::remote::resolve(&c, &path);
         return crate::modules::remote::fs::list_subdirs(&c, &dir, show_hidden).await;
     }
+    list_subdirs_local(path, show_hidden, Some(workspace))
+}
+
+pub fn list_subdirs_local(
+    path: String,
+    show_hidden: bool,
+    workspace: Option<WorkspaceEnv>,
+) -> Result<Vec<String>, String> {
+    let workspace = WorkspaceEnv::from_option(workspace);
     let root = resolve_path(&path, &workspace);
     let read = std::fs::read_dir(&root).map_err(|e| {
         log::debug!("list_subdirs({}) read_dir failed: {e}", root.display());

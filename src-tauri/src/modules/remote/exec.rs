@@ -67,7 +67,8 @@ pub async fn list_files(
         limit + 1,
     );
     let out = conn.exec(&cmd).await?;
-    let mut files: Vec<String> = out.stdout.lines().map(str::to_owned).collect();
+    let text = out.stdout_text();
+    let mut files: Vec<String> = text.lines().map(str::to_owned).collect();
     let truncated = files.len() > limit;
     files.truncate(limit);
     Ok(ListFilesResult { files, truncated })
@@ -95,11 +96,12 @@ pub async fn search(
         hidden_filter(show_hidden),
     );
     let out = conn.exec(&cmd).await?;
+    let text = out.stdout_text();
 
     let needle = query.to_lowercase();
     let mut hits: Vec<SearchHit> = Vec::new();
     let mut truncated = false;
-    for line in out.stdout.lines() {
+    for line in text.lines() {
         if line == root {
             continue;
         }
@@ -130,7 +132,8 @@ pub async fn search(
                 prune_expr(),
             ))
             .await?;
-        let dir_set: std::collections::HashSet<&str> = dirs.stdout.lines().collect();
+        let dirs_text = dirs.stdout_text();
+        let dir_set: std::collections::HashSet<&str> = dirs_text.lines().collect();
         for hit in &mut hits {
             hit.is_dir = dir_set.contains(hit.path.as_str());
         }
@@ -168,9 +171,10 @@ pub async fn grep(
         limit + 1,
     );
     let out = conn.exec(&cmd).await?;
+    let text = out.stdout_text();
 
     let mut hits: Vec<GrepHit> = Vec::new();
-    for line in out.stdout.lines() {
+    for line in text.lines() {
         // grep -n prints `path:line:text`; a path may itself contain a colon,
         // so split from the left only as far as the two known fields.
         let Some((file, rest)) = split_grep_line(line, root) else {
@@ -242,8 +246,8 @@ pub async fn glob(
         limit + 1,
     );
     let out = conn.exec(&cmd).await?;
-    let mut hits: Vec<GlobHit> = out
-        .stdout
+    let text = out.stdout_text();
+    let mut hits: Vec<GlobHit> = text
         .lines()
         .map(|l| GlobHit {
             path: l.to_owned(),

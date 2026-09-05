@@ -45,7 +45,32 @@ const PRUNE_DIRS: &[&str] = &[
 ];
 
 #[tauri::command]
-pub fn fs_search(
+pub async fn fs_search(
+    root: String,
+    query: String,
+    limit: Option<usize>,
+    workspace: Option<WorkspaceEnv>,
+    show_hidden: Option<bool>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
+) -> Result<SearchResult, String> {
+    let q = query.trim();
+    if q.is_empty() {
+        return Ok(SearchResult {
+            hits: Vec::new(),
+            truncated: false,
+        });
+    }
+    let cap = limit.unwrap_or(200).min(1000);
+    let workspace_env = WorkspaceEnv::from_option(workspace.clone());
+    if let Some(conn) = workspace_env.remote_conn() {
+        let c = remote.require(conn)?;
+        let dir = crate::modules::remote::resolve(&c, &root);
+        return crate::modules::remote::exec::search(&c, &dir, q, cap, show_hidden.unwrap_or(false)).await;
+    }
+    fs_search_local(root, query, limit, workspace, show_hidden)
+}
+
+pub fn fs_search_local(
     root: String,
     query: String,
     limit: Option<usize>,
@@ -154,7 +179,32 @@ pub struct ListFilesResult {
 }
 
 #[tauri::command]
-pub fn fs_list_files(
+pub async fn fs_list_files(
+    root: String,
+    limit: Option<usize>,
+    max_depth: Option<usize>,
+    workspace: Option<WorkspaceEnv>,
+    show_hidden: Option<bool>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
+) -> Result<ListFilesResult, String> {
+    const DEFAULT_LIMIT: usize = 2_000;
+    const HARD_LIMIT: usize = 10_000;
+    const DEFAULT_DEPTH: usize = 8;
+    const HARD_DEPTH: usize = 16;
+
+    let cap = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, HARD_LIMIT);
+    let depth = max_depth.unwrap_or(DEFAULT_DEPTH).clamp(1, HARD_DEPTH);
+    let show_hidden = show_hidden.unwrap_or(false);
+    let workspace_env = WorkspaceEnv::from_option(workspace.clone());
+    if let Some(conn) = workspace_env.remote_conn() {
+        let c = remote.require(conn)?;
+        let dir = crate::modules::remote::resolve(&c, &root);
+        return crate::modules::remote::exec::list_files(&c, &dir, cap, Some(depth), show_hidden).await;
+    }
+    fs_list_files_local(root, limit, max_depth, workspace, Some(show_hidden))
+}
+
+pub fn fs_list_files_local(
     root: String,
     limit: Option<usize>,
     max_depth: Option<usize>,

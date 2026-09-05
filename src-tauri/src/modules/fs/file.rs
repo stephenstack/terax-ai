@@ -59,7 +59,7 @@ pub async fn fs_read_file(
     path: String,
     workspace: Option<WorkspaceEnv>,
     force: Option<bool>,
-    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
 ) -> Result<ReadResult, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     if let Some(conn) = workspace.remote_conn() {
@@ -137,7 +137,7 @@ pub async fn fs_write_file(
     workspace: Option<WorkspaceEnv>,
     source: Option<String>,
     app: tauri::AppHandle,
-    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
 ) -> Result<u64, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     if let Some(conn) = workspace.remote_conn() {
@@ -174,7 +174,7 @@ pub async fn fs_write_file(
 pub async fn fs_canonicalize(
     path: String,
     workspace: Option<WorkspaceEnv>,
-    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
 ) -> Result<String, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     if let Some(conn) = workspace.remote_conn() {
@@ -191,7 +191,7 @@ pub async fn fs_canonicalize(
 pub async fn fs_stat(
     path: String,
     workspace: Option<WorkspaceEnv>,
-    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
 ) -> Result<FileStat, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
     if let Some(conn) = workspace.remote_conn() {

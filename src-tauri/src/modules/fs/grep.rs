@@ -170,7 +170,42 @@ fn search_tree(
 }
 
 #[tauri::command]
-pub fn fs_grep(
+pub async fn fs_grep(
+    pattern: String,
+    root: String,
+    glob: Option<Vec<String>>,
+    case_insensitive: Option<bool>,
+    max_results: Option<usize>,
+    workspace: Option<WorkspaceEnv>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
+) -> Result<GrepResponse, String> {
+    if pattern.is_empty() {
+        return Err("empty pattern".into());
+    }
+    let workspace = WorkspaceEnv::from_option(workspace);
+    if let Some(conn) = workspace.remote_conn() {
+        let c = remote.require(conn)?;
+        let dir = crate::modules::remote::resolve(&c, &root);
+        return crate::modules::remote::exec::grep(
+            &c,
+            &dir,
+            &pattern,
+            max_results.unwrap_or(500),
+            !case_insensitive.unwrap_or(false),
+        )
+        .await;
+    }
+    fs_grep_local(
+        pattern,
+        root,
+        glob,
+        case_insensitive,
+        max_results,
+        Some(workspace),
+    )
+}
+
+pub fn fs_grep_local(
     pattern: String,
     root: String,
     glob: Option<Vec<String>>,
@@ -212,12 +247,13 @@ pub fn fs_grep(
 /// Interactive content search for the command palette. Treats the query as a
 /// literal (smart-case), and self-cancels when a newer query arrives.
 #[tauri::command]
-pub fn fs_grep_interactive(
+pub async fn fs_grep_interactive(
     state: tauri::State<'_, ContentSearchState>,
     pattern: String,
     root: String,
     max_results: Option<usize>,
     workspace: Option<WorkspaceEnv>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
 ) -> Result<GrepResponse, String> {
     if pattern.trim().is_empty() {
         return Err("empty pattern".into());
@@ -225,6 +261,21 @@ pub fn fs_grep_interactive(
     let my_gen = state.generation.fetch_add(1, Ordering::SeqCst) + 1;
 
     let workspace = WorkspaceEnv::from_option(workspace);
+    if let Some(conn) = workspace.remote_conn() {
+        let c = remote.require(conn)?;
+        let dir = crate::modules::remote::resolve(&c, &root);
+        let result =
+            crate::modules::remote::exec::grep(&c, &dir, &pattern, max_results.unwrap_or(200), false).await;
+        // A superseded keystroke's result must not overwrite a newer one.
+        if state.generation.load(Ordering::SeqCst) != my_gen {
+            return Ok(GrepResponse {
+                hits: Vec::new(),
+                truncated: false,
+                files_scanned: 0,
+            });
+        }
+        return result;
+    }
     let root_path = resolve_path(&root, &workspace);
     if !root_path.is_dir() {
         return Err(format!("not a directory: {root}"));
@@ -264,7 +315,26 @@ pub struct GlobResponse {
 }
 
 #[tauri::command]
-pub fn fs_glob(
+pub async fn fs_glob(
+    pattern: String,
+    root: String,
+    max_results: Option<usize>,
+    workspace: Option<WorkspaceEnv>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
+) -> Result<GlobResponse, String> {
+    if pattern.is_empty() {
+        return Err("empty pattern".into());
+    }
+    let workspace = WorkspaceEnv::from_option(workspace);
+    if let Some(conn) = workspace.remote_conn() {
+        let c = remote.require(conn)?;
+        let dir = crate::modules::remote::resolve(&c, &root);
+        return crate::modules::remote::exec::glob(&c, &dir, &pattern, max_results.unwrap_or(500)).await;
+    }
+    fs_glob_local(pattern, root, max_results, Some(workspace))
+}
+
+pub fn fs_glob_local(
     pattern: String,
     root: String,
     max_results: Option<usize>,
