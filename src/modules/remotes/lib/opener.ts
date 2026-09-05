@@ -61,7 +61,7 @@ export const usePromptStore = create<PromptState>((set, get) => ({
     set((s) => ({ queue: s.queue.filter((p) => promptKey(p) !== key) })),
 }));
 
-export function profileToTarget(profile: RemoteProfile): SshTarget {
+function profileToTarget(profile: RemoteProfile): SshTarget {
   return {
     host: profile.host,
     port: profile.port,

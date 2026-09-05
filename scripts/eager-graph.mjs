@@ -89,7 +89,13 @@ export function traceEager(entry, watch = DEFAULT_WATCH) {
       }
     }
   }
-  return { moduleCount: seen.size, hits };
+  return {
+    moduleCount: seen.size,
+    hits,
+    // Repo-relative local modules in the eager graph, so callers can assert
+    // that a specific surface stays lazily loaded.
+    files: new Set([...seen].map((f) => f.replace(root + "/", ""))),
+  };
 }
 
 const isCli = process.argv[1] === fileURLToPath(import.meta.url);

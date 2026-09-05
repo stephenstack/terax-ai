@@ -12,14 +12,12 @@ export type RemoteAuthMethod =
   | { kind: "password" }
   | { kind: "keyboardInteractive" };
 
-export type RemoteAuthKind = RemoteAuthMethod["kind"];
-
 /**
  * Per-profile terminal overrides. Every field is optional and falls back to
  * the global preference, so a profile only stores what it actually changes.
  * Defined by the terminal module, which is what consumes it.
  */
-export type RemoteAppearance = TerminalAppearanceOverride;
+type RemoteAppearance = TerminalAppearanceOverride;
 
 export type RemoteProfile = {
   id: string;
@@ -76,7 +74,7 @@ export type SshTarget = {
   env: Array<[string, string]>;
 };
 
-export type HostKeyStatus = "trusted" | "unknown" | "changed";
+type HostKeyStatus = "trusted" | "unknown" | "changed";
 
 /** Structured events from the Rust connect task. */
 export type SshEvent =

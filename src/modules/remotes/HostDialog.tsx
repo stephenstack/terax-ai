@@ -23,7 +23,7 @@ import { Delete02Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useState } from "react";
 import { pruneAppearance, type TerminalAppearance } from "@/modules/terminal";
-import { discoverKeys } from "./lib/ssh-bridge";
+import { agentIdentities, discoverKeys } from "./lib/ssh-bridge";
 import { useRemotesStore } from "./lib/store";
 import type {
   DiscoveredKey,
@@ -48,6 +48,8 @@ const AUTH_LABEL: Record<RemoteAuthMethod["kind"], string> = {
 export function HostDialog({ profile, groups, onClose }: Props) {
   const [draft, setDraft] = useState<RemoteProfile>(profile);
   const [keys, setKeys] = useState<DiscoveredKey[]>([]);
+  // null while probing, [] when no agent is reachable.
+  const [agentKeys, setAgentKeys] = useState<string[] | null>(null);
   const save = useRemotesStore((s) => s.saveProfile);
 
   const base = useAppearanceBase();
@@ -56,6 +58,9 @@ export function HostDialog({ profile, groups, onClose }: Props) {
     void discoverKeys()
       .then(setKeys)
       .catch(() => setKeys([]));
+    void agentIdentities()
+      .then(setAgentKeys)
+      .catch(() => setAgentKeys([]));
   }, []);
 
   const patch = (next: Partial<RemoteProfile>) =>
@@ -175,6 +180,7 @@ export function HostDialog({ profile, groups, onClose }: Props) {
               <AuthList
                 methods={draft.auth}
                 keys={keys}
+                agentKeys={agentKeys}
                 onChange={(auth) => patch({ auth })}
               />
             </TabsContent>
@@ -349,10 +355,12 @@ function Field({
 function AuthList({
   methods,
   keys,
+  agentKeys,
   onChange,
 }: {
   methods: RemoteAuthMethod[];
   keys: DiscoveredKey[];
+  agentKeys: string[] | null;
   onChange: (methods: RemoteAuthMethod[]) => void;
 }) {
   const add = (kind: RemoteAuthMethod["kind"]) => {
@@ -397,7 +405,15 @@ function AuthList({
           <span className="w-32 shrink-0 text-[11.5px]">
             {AUTH_LABEL[method.kind]}
           </span>
-          {method.kind === "keyFile" ? (
+          {method.kind === "agent" ? (
+            <span className="min-w-0 flex-1 truncate text-[10.5px] text-muted-foreground/80">
+              {agentKeys === null
+                ? "Checking for an agent..."
+                : agentKeys.length === 0
+                  ? "No agent running"
+                  : `${agentKeys.length} identit${agentKeys.length === 1 ? "y" : "ies"}: ${agentKeys.join(", ")}`}
+            </span>
+          ) : method.kind === "keyFile" ? (
             <KeyPicker
               value={method.path}
               keys={keys}

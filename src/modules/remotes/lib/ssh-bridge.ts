@@ -95,10 +95,6 @@ export function respondToPrompt(
   return invoke("ssh_prompt_respond", { id, promptId, value });
 }
 
-export function closeAllSshSessions(): Promise<number> {
-  return invoke<number>("ssh_close_all");
-}
-
 export function discoverKeys(): Promise<DiscoveredKey[]> {
   return invoke<DiscoveredKey[]>("ssh_discover_keys");
 }

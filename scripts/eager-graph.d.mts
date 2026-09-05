@@ -5,4 +5,5 @@ export function traceEager(
 ): {
   moduleCount: number;
   hits: Map<string, { spec: string; file: string }>;
+  files: Set<string>;
 };

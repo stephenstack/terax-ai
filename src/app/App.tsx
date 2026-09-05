@@ -1345,6 +1345,9 @@ export default function App() {
       askFromSelection,
       activeSpaceId,
       handleNewSpace,
+      remoteCommandTargets,
+      connectRemoteById,
+      openSidebarView,
     ],
   );
 

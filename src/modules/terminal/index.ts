@@ -9,7 +9,6 @@ export {
 } from "./lib/appearanceOverride";
 export type { PtySession } from "./lib/pty-bridge";
 export {
-  type RemoteOpener,
   registerRemoteOpener,
   clearFocusedTerminal,
   disposeSession,

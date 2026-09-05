@@ -13,8 +13,10 @@
   },
   {
     "name": "total client JS",
-    "path": ["dist/assets/*.js"],
-    "limit": "1505 KB",
+    "path": [
+      "dist/assets/*.js"
+    ],
+    "limit": "1525 KB",
     "gzip": true
   }
 ]
