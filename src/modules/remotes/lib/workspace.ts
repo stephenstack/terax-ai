@@ -1,9 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
-import type { WorkspaceEnv } from "@/modules/workspace";
-import { promptKey, usePromptStore } from "./opener";
+import { usePromptStore } from "./opener";
 import { profileToTarget } from "./target";
-import { findProfile } from "./store";
 import type { RemoteProfile, SshEvent } from "./types";
 
 type RemoteOpened = {
@@ -13,7 +11,7 @@ type RemoteOpened = {
   user: string;
 };
 
-export type RemoteWorkspace = {
+type RemoteWorkspace = {
   profileId: string;
   conn: number;
   /** Remote home, used to seed the explorer root when the profile has no cwd. */
@@ -119,21 +117,3 @@ export const useRemoteWorkspaceStore = create<State>((set, get) => ({
     await invoke("remote_close", { id: active.conn }).catch(() => {});
   },
 }));
-
-/** The workspace env for the open remote workspace, or null when there is none. */
-export function remoteWorkspaceEnv(): WorkspaceEnv | null {
-  const active = useRemoteWorkspaceStore.getState().active;
-  if (!active) return null;
-  return { kind: "ssh", conn: active.conn, profileId: active.profileId };
-}
-
-export function closeAllRemoteWorkspaces(): Promise<number> {
-  return invoke<number>("remote_close_all");
-}
-
-/** Re-resolve a profile at connect time so an edit since opening is picked up. */
-export function currentProfile(id: string): RemoteProfile | undefined {
-  return findProfile(id);
-}
-
-export { promptKey };

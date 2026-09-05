@@ -8,7 +8,7 @@ import type { SshEvent } from "./types";
 
 /** Terminal sessions and remote workspaces are separate pools with separate
  *  respond commands, so a prompt has to say which one it came from. */
-export type PromptScope = "terminal" | "workspace";
+type PromptScope = "terminal" | "workspace";
 
 /** A question the connect task is blocked on, surfaced as a modal. */
 export type PendingPrompt =

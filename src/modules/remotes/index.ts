@@ -1,10 +1,7 @@
 export { RemotePrompts, RemotesPanel } from "./RemotesLazy";
 export { installRemoteOpener } from "./lib/opener";
 export { useRemotesStore } from "./lib/store";
-export {
-  closeAllRemoteWorkspaces,
-  useRemoteWorkspaceStore,
-} from "./lib/workspace";
+export { useRemoteWorkspaceStore } from "./lib/workspace";
 export { profileAddress, profileLabel } from "./lib/tree";
-export { useTunnelStore } from "./lib/tunnels";
+
 export type { RemoteProfile } from "./lib/types";
