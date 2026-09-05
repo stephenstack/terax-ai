@@ -1,4 +1,5 @@
 import { useTheme } from "@/modules/theme";
+import type { TerminalAppearanceOverride } from "./lib/appearanceOverride";
 import type { SearchAddon } from "@xterm/addon-search";
 import {
   forwardRef,
@@ -32,6 +33,10 @@ type Props = {
   initialCwd?: string;
   /** Enable command-block decorations (OSC 133) for this terminal. */
   blocks?: boolean;
+  /** Remote profile id when this pane is an SSH session. */
+  remoteId?: string;
+  /** Per-session appearance, overriding the global preferences. */
+  appearance?: TerminalAppearanceOverride;
   onSearchReady?: (leafId: number, addon: SearchAddon) => void;
   onExit?: (leafId: number, code: number) => void;
   onCwd?: (leafId: number, cwd: string) => void;
@@ -45,6 +50,8 @@ export const TerminalPane = memo(
       focused = true,
       initialCwd,
       blocks = false,
+      remoteId,
+      appearance,
       onSearchReady,
       onExit,
       onCwd,
@@ -57,6 +64,8 @@ export const TerminalPane = memo(
 
     const session = useTerminalSession({
       leafId,
+      remoteId,
+      appearance,
       container: containerRef,
       visible,
       focused,

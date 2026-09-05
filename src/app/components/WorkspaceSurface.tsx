@@ -22,6 +22,7 @@ type Props = {
   onCwd: TerminalStackProps["onCwd"];
   onExit: TerminalStackProps["onExit"];
   onFocusLeaf: TerminalStackProps["onFocusLeaf"];
+  remoteAppearance: TerminalStackProps["remoteAppearance"];
   registerEditorHandle: EditorStackProps["registerHandle"];
   onEditorDirtyChange: EditorStackProps["onDirtyChange"];
   onEditorCloseTab: EditorStackProps["onCloseTab"];
@@ -53,6 +54,7 @@ export function WorkspaceSurface({
   onCwd,
   onExit,
   onFocusLeaf,
+  remoteAppearance,
   registerEditorHandle,
   onEditorDirtyChange,
   onEditorCloseTab,
@@ -91,6 +93,7 @@ export function WorkspaceSurface({
           onCwd={onCwd}
           onExit={onExit}
           onFocusLeaf={onFocusLeaf}
+          remoteAppearance={remoteAppearance}
         />
       </div>
       <div

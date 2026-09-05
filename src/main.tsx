@@ -19,8 +19,12 @@ if (import.meta.env.DEV && import.meta.env.VITE_REACT_SCAN === "true") {
   scan({ enabled: true });
 }
 
-// Reap PTY sessions orphaned by a prior webview load before any tab spawns.
-await invoke("pty_close_all").catch(() => {});
+// Reap PTY and SSH sessions orphaned by a prior webview load before any tab
+// spawns. Both run in the same still-alive process.
+await Promise.all([
+  invoke("pty_close_all").catch(() => {}),
+  invoke("ssh_close_all").catch(() => {}),
+]);
 
 // Seed before first paint so default tab mounts at target cwd (no flicker).
 await initLaunchDir();

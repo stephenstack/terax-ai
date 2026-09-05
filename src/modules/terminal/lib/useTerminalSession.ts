@@ -24,6 +24,11 @@ import {
   registerPromptTracker,
 } from "./osc-handlers";
 import { openPty, type PtySession } from "./pty-bridge";
+import {
+  hasAppearanceOverrides,
+  resolveAppearance,
+  type TerminalAppearanceOverride,
+} from "./appearanceOverride";
 import "../block/block.css";
 import { ensureAgentActivityListener, isAgentActivePty } from "./agentActivity";
 import {
@@ -101,6 +106,8 @@ type Session = {
   commandRunning: boolean;
   hiddenReleaseTimer: ReturnType<typeof setTimeout> | null;
   spawnFailed: boolean;
+  /** Profile id when this leaf is an SSH session rather than a local shell. */
+  remoteId?: string;
 };
 
 const sessions = new Map<number, Session>();
@@ -434,10 +441,32 @@ configureRendererPool({
   },
 });
 
+/**
+ * Opens a session against a remote host. Registered by the remotes module so
+ * the terminal never has to import it, which would make the two modules
+ * mutually dependent.
+ */
+export type RemoteOpener = (
+  remoteId: string,
+  cols: number,
+  rows: number,
+  handlers: {
+    onData: (bytes: Uint8Array) => void;
+    onExit: (code: number) => void;
+  },
+) => Promise<PtySession>;
+
+let remoteOpener: RemoteOpener | null = null;
+
+export function registerRemoteOpener(opener: RemoteOpener | null): void {
+  remoteOpener = opener;
+}
+
 function ensureSession(
   leafId: number,
   initialCwd?: string,
   blocks = false,
+  remoteId?: string,
 ): Session {
   const existing = sessions.get(leafId);
   if (existing) return existing;
@@ -474,6 +503,7 @@ function ensureSession(
     commandRunning: false,
     hiddenReleaseTimer: null,
     spawnFailed: false,
+    remoteId,
   };
   sessions.set(leafId, session);
 
@@ -530,6 +560,18 @@ function surfaceSpawnFailure(leafId: number, s: Session, e: unknown): void {
   );
 }
 
+function handleSessionExit(leafId: number, s: Session, code: number): void {
+  s.shellExited = true;
+  s.pty = null;
+  s.pendingInput = "";
+  s.commandRunning = false;
+  const slot = getSlotForLeaf(leafId);
+  if (slot) slot.term.options.disableStdin = true;
+  scheduleHiddenRelease(leafId, s);
+  if (s.callbacks.onExit) s.callbacks.onExit(code);
+  else s.pendingExit = code;
+}
+
 async function openPtyForSession(
   leafId: number,
   s: Session,
@@ -537,22 +579,19 @@ async function openPtyForSession(
 ): Promise<PtySession> {
   const startCols = s.cols > 0 ? s.cols : 80;
   const startRows = s.rows > 0 ? s.rows : 24;
+  if (s.remoteId) {
+    if (!remoteOpener) throw new Error("remote sessions are not available");
+    return remoteOpener(s.remoteId, startCols, startRows, {
+      onData: (bytes) => deliverPtyBytes(leafId, bytes),
+      onExit: (code) => handleSessionExit(leafId, s, code),
+    });
+  }
   const pty = await openPty(
     startCols,
     startRows,
     {
       onData: (bytes) => deliverPtyBytes(leafId, bytes),
-      onExit: (code) => {
-        s.shellExited = true;
-        s.pty = null;
-        s.pendingInput = "";
-        s.commandRunning = false;
-        const slot = getSlotForLeaf(leafId);
-        if (slot) slot.term.options.disableStdin = true;
-        scheduleHiddenRelease(leafId, s);
-        if (s.callbacks.onExit) s.callbacks.onExit(code);
-        else s.pendingExit = code;
-      },
+      onExit: (code) => handleSessionExit(leafId, s, code),
     },
     cwd,
     s.blocks,
@@ -826,6 +865,10 @@ type Options = {
   focused?: boolean;
   initialCwd?: string;
   blocks?: boolean;
+  /** Remote profile id when this leaf is an SSH session. */
+  remoteId?: string;
+  /** Per-session appearance, overriding the global preferences. */
+  appearance?: TerminalAppearanceOverride;
   onSearchReady?: (addon: SearchAddon) => void;
   onExit?: (code: number) => void;
   onCwd?: (cwd: string) => void;
@@ -838,6 +881,8 @@ export function useTerminalSession({
   focused = true,
   initialCwd,
   blocks = false,
+  remoteId,
+  appearance,
   onSearchReady,
   onExit,
   onCwd,
@@ -853,7 +898,7 @@ export function useTerminalSession({
 
   useEffect(() => {
     let cancelled = false;
-    const s = ensureSession(leafId, initialCwdRef.current, blocks);
+    const s = ensureSession(leafId, initialCwdRef.current, blocks, remoteId);
     s.ready.then(() => {
       if (cancelled || s.disposed) return;
       const node = container.current;
@@ -869,54 +914,93 @@ export function useTerminalSession({
       cancelled = true;
       detachSession(leafId);
     };
-  }, [leafId, container, blocks]);
+  }, [leafId, container, blocks, remoteId]);
 
   const [blockMode, setBlockMode] = useState<BlockMode>("prompt");
   useEffect(() => {
     if (!blocks) return;
-    const s = ensureSession(leafId, initialCwdRef.current, blocks);
+    const s = ensureSession(leafId, initialCwdRef.current, blocks, remoteId);
     setBlockMode(s.blockMode);
     const cb = () => setBlockMode(sessions.get(leafId)?.blockMode ?? "prompt");
     s.blockListeners.add(cb);
     return () => {
       s.blockListeners.delete(cb);
     };
-  }, [leafId, blocks]);
+  }, [leafId, blocks, remoteId]);
+
+  // The renderer pool holds one shared configuration, so a session carrying
+  // overrides may only push them while it is the focused pane. A session with
+  // none pushes the global values unconditionally, which is what every local
+  // terminal has always done and is idempotent across panes.
+  const overrides = hasAppearanceOverrides(appearance);
+  const owns = !overrides || (visible && focused);
 
   const { fontFamily, fontWeight, fontSize } = useTerminalFont();
   const zoomLevel = usePreferencesStore((p) => p.zoomLevel);
-  useLayoutEffect(() => {
-    applyTerminalFont({
-      fontFamily,
-      fontWeight,
-      fontSize: Math.max(4, Math.round(fontSize * zoomLevel)),
-    });
-  }, [fontFamily, fontWeight, fontSize, zoomLevel]);
-
   const letterSpacing = usePreferencesStore((p) => p.terminalLetterSpacing);
-  useEffect(() => {
-    applyLetterSpacing(letterSpacing);
-  }, [letterSpacing]);
-
   const scrollback = usePreferencesStore((p) => p.terminalScrollback);
+  const cursorBlink = usePreferencesStore((p) => p.terminalCursorBlink);
+  const cursorStyle = usePreferencesStore((p) => p.terminalCursorStyle);
+
+  const eff = useMemo(
+    () =>
+      resolveAppearance(
+        {
+          fontFamily,
+          fontSize,
+          fontWeight,
+          letterSpacing,
+          cursorStyle,
+          cursorBlink,
+          scrollback,
+        },
+        appearance,
+      ),
+    [
+      fontFamily,
+      fontSize,
+      fontWeight,
+      letterSpacing,
+      cursorStyle,
+      cursorBlink,
+      scrollback,
+      appearance,
+    ],
+  );
+
+  useLayoutEffect(() => {
+    if (!owns) return;
+    applyTerminalFont({
+      fontFamily: eff.fontFamily,
+      fontWeight: eff.fontWeight,
+      fontSize: Math.max(4, Math.round(eff.fontSize * zoomLevel)),
+    });
+  }, [owns, eff.fontFamily, eff.fontWeight, eff.fontSize, zoomLevel]);
+
   useEffect(() => {
-    applyScrollback(scrollback);
-  }, [scrollback]);
+    if (!owns) return;
+    applyLetterSpacing(eff.letterSpacing);
+  }, [owns, eff.letterSpacing]);
+
+  useEffect(() => {
+    if (!owns) return;
+    applyScrollback(eff.scrollback);
+  }, [owns, eff.scrollback]);
 
   const webglPref = usePreferencesStore((p) => p.terminalWebglEnabled);
   useEffect(() => {
     applyWebglPreference(webglPref);
   }, [webglPref]);
 
-  const cursorBlink = usePreferencesStore((p) => p.terminalCursorBlink);
   useEffect(() => {
-    applyCursorBlink(cursorBlink);
-  }, [cursorBlink]);
+    if (!owns) return;
+    applyCursorBlink(eff.cursorBlink);
+  }, [owns, eff.cursorBlink]);
 
-  const cursorStyle = usePreferencesStore((p) => p.terminalCursorStyle);
   useEffect(() => {
-    applyCursorStyle(cursorStyle);
-  }, [cursorStyle]);
+    if (!owns) return;
+    applyCursorStyle(eff.cursorStyle);
+  }, [owns, eff.cursorStyle]);
 
   const bgActive = usePreferencesStore(
     (p) => p.backgroundKind === "image" && !!p.backgroundImageId,

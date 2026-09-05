@@ -1,6 +1,16 @@
 export { TerminalPane, type TerminalPaneHandle } from "./TerminalPane";
 export { TerminalStack } from "./TerminalStack";
 export {
+  type TerminalAppearance,
+  type TerminalAppearanceOverride,
+  hasAppearanceOverrides,
+  pruneAppearance,
+  resolveAppearance,
+} from "./lib/appearanceOverride";
+export type { PtySession } from "./lib/pty-bridge";
+export {
+  type RemoteOpener,
+  registerRemoteOpener,
   clearFocusedTerminal,
   disposeSession,
   leafHasForegroundProcess,

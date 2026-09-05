@@ -1,4 +1,5 @@
 import type { Tab } from "@/modules/tabs";
+import type { TerminalAppearanceOverride } from "./lib/appearanceOverride";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useEffect, useMemo, useRef } from "react";
 import { selectLiveTerminals } from "./lib/liveTerminals";
@@ -15,6 +16,9 @@ type Props = {
   onCwd: (leafId: number, cwd: string) => void;
   onExit: (leafId: number, code: number) => void;
   onFocusLeaf: (tabId: number, leafId: number) => void;
+  /** Appearance overrides by remote profile id, supplied by the coordinator so
+   *  the terminal never has to depend on the remotes module. */
+  remoteAppearance?: Map<string, TerminalAppearanceOverride>;
 };
 
 type Bundle = {
@@ -32,6 +36,7 @@ export function TerminalStack({
   onCwd,
   onExit,
   onFocusLeaf,
+  remoteAppearance,
 }: Props) {
   const terminals = useMemo(() => selectLiveTerminals(tabs), [tabs]);
 
@@ -96,6 +101,10 @@ export function TerminalStack({
               tabVisible={tabVisible}
               activeLeafId={t.activeLeafId}
               blocks={t.blocks ?? false}
+              remoteId={t.remoteId}
+              appearance={
+                t.remoteId ? remoteAppearance?.get(t.remoteId) : undefined
+              }
               onFocusLeaf={(leafId) => onFocusLeaf(t.id, leafId)}
               getBundle={getBundle}
             />

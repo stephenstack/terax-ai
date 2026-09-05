@@ -3,6 +3,7 @@ import { MAX_PANES_PER_TAB, type Tab } from "@/modules/tabs";
 import { leafIds } from "@/modules/terminal";
 import {
   Cancel01Icon,
+  CloudServerIcon,
   DashboardSquare01Icon,
   FileEditIcon,
   FileSearchIcon,
@@ -28,6 +29,7 @@ export const COMMAND_GROUPS = [
   "Tabs",
   "Panes",
   "Git",
+  "Remotes",
   "Search",
   "View",
   "AI",
@@ -62,6 +64,9 @@ export type CommandPaletteActionContext = {
   openSpacesOverview: () => void;
   newSpace: () => void;
   switchSpace: (id: string) => void;
+  remotes: { id: string; label: string; address: string }[];
+  connectRemote: (id: string) => void;
+  openRemotes: () => void;
 };
 
 const noop = () => {};
@@ -135,6 +140,23 @@ export function createCommandItems(
       disabledReason:
         sp.id === ctx.activeSpaceId ? "Current space" : undefined,
       run: () => ctx.switchSpace(sp.id),
+    })),
+    {
+      id: "remotes.open",
+      title: "Remotes: Manage hosts",
+      group: "Remotes" as const,
+      keywords: ["ssh", "remote", "server", "host", "manage"],
+      icon: CloudServerIcon,
+      run: ctx.openRemotes,
+    },
+    ...ctx.remotes.map((r) => ({
+      id: `remotes.connect.${r.id}`,
+      title: `Connect to ${r.label}`,
+      trailing: r.address,
+      group: "Remotes" as const,
+      keywords: ["ssh", "remote", "connect", r.label, r.address],
+      icon: CloudServerIcon,
+      run: () => ctx.connectRemote(r.id),
     })),
     {
       id: "tab.new",

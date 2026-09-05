@@ -39,6 +39,7 @@ The themes below frame every scope decision.
 - [x] Drag and drop files into terminal panes as shell-safe quoted paths
 - [x] Private terminal tabs with AI-context redaction
 - [x] WSL bridge as workspace environment
+- [x] SSH remote sessions with host groups, agent / key / password / keyboard-interactive auth, known_hosts verification, per-host session and appearance options, and `~/.ssh/config` import
 - [x] Spaces with restored tabs, working directories, and split-pane layouts
 
 ### Editor
@@ -111,7 +112,8 @@ The themes below frame every scope decision.
 
 ### Coming next
 
-- [ ] SSH support (PTY auth and known_hosts first; SFTP and port forwarding later)
+- [ ] SSH: SFTP-backed file explorer, editor, and source control for remote workspaces
+- [ ] SSH: port forwarding and `ProxyJump`
 - [ ] Inline terminal auto-suggestions (history-based first; AI-powered opt-in later)
 - [ ] AI agent reliability and workflow improvements (tool execution, context management, recovery, and long-running tasks)
 - [ ] Expand external coding-agent orchestration beyond Claude Code

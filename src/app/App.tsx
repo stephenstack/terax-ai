@@ -56,6 +56,15 @@ import {
   useGlobalShortcuts,
 } from "@/modules/shortcuts";
 import {
+  installRemoteOpener,
+  profileAddress,
+  profileLabel,
+  RemotePrompts,
+  RemotesPanel,
+  useRemotesStore,
+  type RemoteProfile,
+} from "@/modules/remotes";
+import {
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
   SidebarRail,
@@ -152,6 +161,7 @@ export default function App() {
     setActiveSpaceForNewTabs,
     newTab,
     newBlockTab,
+    newRemoteTab,
     newAgentTab,
     newAgentGroupTab,
     newPrivateTab,
@@ -660,6 +670,46 @@ export default function App() {
       }, 80);
     },
     [newTab],
+  );
+
+  // The terminal module reaches SSH through a registered opener so it never
+  // has to depend on the remotes module. Installed once, before any pane can
+  // spawn.
+  useEffect(() => {
+    installRemoteOpener();
+    void useRemotesStore.getState().init();
+  }, []);
+
+  const remoteProfiles = useRemotesStore((s) => s.profiles);
+  const remoteAppearance = useMemo(() => {
+    const map = new Map<string, RemoteProfile["appearance"]>();
+    for (const p of remoteProfiles) map.set(p.id, p.appearance);
+    return map;
+  }, [remoteProfiles]);
+
+  const connectToRemote = useCallback(
+    (profile: RemoteProfile) => {
+      newRemoteTab(profile.id, profile.name.trim() || profile.host);
+    },
+    [newRemoteTab],
+  );
+
+  const remoteCommandTargets = useMemo(
+    () =>
+      remoteProfiles.map((p) => ({
+        id: p.id,
+        label: profileLabel(p),
+        address: profileAddress(p),
+      })),
+    [remoteProfiles],
+  );
+
+  const connectRemoteById = useCallback(
+    (id: string) => {
+      const profile = remoteProfiles.find((p) => p.id === id);
+      if (profile) connectToRemote(profile);
+    },
+    [remoteProfiles, connectToRemote],
   );
 
   const handleOpenFile = useCallback(
@@ -1269,6 +1319,9 @@ export default function App() {
             openSpacesOverview: () => setSwitcherOpen(true),
             newSpace: () => void handleNewSpace(),
             switchSpace: (id) => useSpaces.getState().setActive(id),
+            remotes: remoteCommandTargets,
+            connectRemote: connectRemoteById,
+            openRemotes: () => openSidebarView("remotes"),
           })
         : [],
     [
@@ -1442,7 +1495,9 @@ export default function App() {
                       key={sidebarView}
                       className="min-h-0 flex-1 terax-panel-in"
                     >
-                      {sidebarView === "explorer" ? (
+                      {sidebarView === "remotes" ? (
+                        <RemotesPanel onConnect={connectToRemote} />
+                      ) : sidebarView === "explorer" ? (
                         <FileExplorer
                           ref={explorerRef}
                           rootPath={explorerRoot}
@@ -1498,6 +1553,7 @@ export default function App() {
                         onSearchReady={handleSearchReady}
                         onCwd={handleTerminalCwd}
                         onExit={handleLeafExit}
+                        remoteAppearance={remoteAppearance}
                         onFocusLeaf={handleFocusLeaf}
                         registerEditorHandle={registerEditorHandle}
                         onEditorDirtyChange={handleEditorDirty}
@@ -1552,6 +1608,7 @@ export default function App() {
             activeId={activeId}
             onActivate={onActivateAgent}
           />
+          <RemotePrompts />
           <Toaster position="bottom-right" />
 
           {hasComposer ? (

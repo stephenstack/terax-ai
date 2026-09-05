@@ -29,7 +29,9 @@ export const DEFAULT_THEME_ID = "terax-default";
 
 export type BackgroundKind = "none" | "image";
 
-export type TerminalCursorStyle = "bar" | "block" | "underline";
+export const TERMINAL_CURSOR_STYLES = ["bar", "block", "underline"] as const;
+
+export type TerminalCursorStyle = (typeof TERMINAL_CURSOR_STYLES)[number];
 
 export const EDITOR_THEMES = [
   "kanagawa",
