@@ -4,7 +4,13 @@ import { setLastWslDistro } from "@/modules/settings/store";
 
 export type WorkspaceEnv =
   | { kind: "local" }
-  | { kind: "wsl"; distro: string };
+  | { kind: "wsl"; distro: string }
+  /**
+   * A directory on another machine. `conn` is the live remote connection id
+   * the backend dispatches on; `profileId` is carried for display and for
+   * reconnecting after a restart, and is ignored by Rust.
+   */
+  | { kind: "ssh"; conn: number; profileId: string };
 
 export type WslDistro = {
   name: string;
@@ -50,13 +56,28 @@ export function currentWorkspaceEnv(): WorkspaceEnv {
 }
 
 export function workspaceScopeKey(env: WorkspaceEnv): string {
-  return env.kind === "wsl" ? `wsl:${env.distro}` : "local";
+  if (env.kind === "wsl") return `wsl:${env.distro}`;
+  // Keyed by profile, not connection: the id changes on every reconnect and
+  // the scope has to stay stable across one so caches are not thrown away.
+  if (env.kind === "ssh") return `ssh:${env.profileId}`;
+  return "local";
 }
 
+/**
+ * Rebuild an env from its scope key. An `ssh:` key cannot be revived on its
+ * own, because the connection it needs no longer exists; the caller reopens
+ * the workspace and gets a fresh id.
+ */
 export function parseWorkspaceScopeKey(key: string): WorkspaceEnv {
   return key.startsWith("wsl:")
     ? { kind: "wsl", distro: key.slice("wsl:".length) }
     : LOCAL_WORKSPACE;
+}
+
+export function isRemoteEnv(
+  env: WorkspaceEnv,
+): env is { kind: "ssh"; conn: number; profileId: string } {
+  return env.kind === "ssh";
 }
 
 export function currentWorkspaceScopeKey(): string {

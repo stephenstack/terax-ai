@@ -6,6 +6,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { IS_WINDOWS } from "@/lib/platform";
+import { useRemoteWorkspaceStore } from "@/modules/remotes";
 import {
   LOCAL_WORKSPACE,
   useWorkspaceEnvStore,
@@ -18,13 +19,20 @@ type Props = {
   onSelect: (env: WorkspaceEnv) => void;
 };
 
-/** Hook-free wrapper so non-Windows never subscribes to the workspace env store. */
+/**
+ * Shown when there is something to switch between: WSL on Windows, or a remote
+ * workspace on any platform. Elsewhere the environment is always local, and a
+ * one-item picker would be noise.
+ */
 export function WorkspaceEnvSelector({ onSelect }: Props) {
-  if (!IS_WINDOWS) return null;
-  return <WorkspaceEnvSelectorWindows onSelect={onSelect} />;
+  const remote = useRemoteWorkspaceStore((s) => s.active);
+  if (!IS_WINDOWS && !remote) return null;
+  return <WorkspaceEnvPicker onSelect={onSelect} />;
 }
 
-function WorkspaceEnvSelectorWindows({ onSelect }: Props) {
+function WorkspaceEnvPicker({ onSelect }: Props) {
+  const remote = useRemoteWorkspaceStore((s) => s.active);
+  const closeRemote = useRemoteWorkspaceStore((s) => s.close);
   const env = useWorkspaceEnvStore((s) => s.env);
   const distros = useWorkspaceEnvStore((s) => s.distros);
   const loading = useWorkspaceEnvStore((s) => s.loading);
@@ -32,12 +40,18 @@ function WorkspaceEnvSelectorWindows({ onSelect }: Props) {
   const refreshDistros = useWorkspaceEnvStore((s) => s.refreshDistros);
 
   const handleOpenChange = (open: boolean) => {
-    if (open && distros.length === 0 && !loading) {
+    if (open && IS_WINDOWS && distros.length === 0 && !loading) {
       void refreshDistros();
     }
   };
 
-  const label = env.kind === "wsl" ? `WSL: ${env.distro}` : "Windows";
+  const localLabel = IS_WINDOWS ? "Windows Local" : "Local";
+  const label =
+    env.kind === "ssh" && remote
+      ? `${remote.user}@${remote.host}`
+      : env.kind === "wsl"
+        ? `WSL: ${env.distro}`
+        : localLabel;
 
   return (
     <DropdownMenu onOpenChange={handleOpenChange}>
@@ -57,8 +71,37 @@ function WorkspaceEnvSelectorWindows({ onSelect }: Props) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-48">
         <DropdownMenuItem onSelect={() => onSelect(LOCAL_WORKSPACE)}>
-          Windows Local
+          {localLabel}
         </DropdownMenuItem>
+        {remote ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={() =>
+                onSelect({
+                  kind: "ssh",
+                  conn: remote.conn,
+                  profileId: remote.profileId,
+                })
+              }
+            >
+              {remote.user}@{remote.host}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => {
+                // Leave the remote first so nothing keeps querying a
+                // connection that is about to go away.
+                onSelect(LOCAL_WORKSPACE);
+                void closeRemote();
+              }}
+            >
+              Disconnect remote workspace
+            </DropdownMenuItem>
+          </>
+        ) : null}
+        {!IS_WINDOWS ? null : (
+        <>
         <DropdownMenuSeparator />
         {distros.length === 0 ? (
           <DropdownMenuItem disabled>
@@ -83,6 +126,8 @@ function WorkspaceEnvSelectorWindows({ onSelect }: Props) {
           <HugeiconsIcon icon={Refresh01Icon} size={13} strokeWidth={1.75} />
           Refresh
         </DropdownMenuItem>
+        </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

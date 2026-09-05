@@ -91,14 +91,23 @@ export function respondToPrompt(
   id: number,
   promptId: number,
   value: string,
+  scope: "terminal" | "workspace" = "terminal",
 ): Promise<void> {
-  return invoke("ssh_prompt_respond", { id, promptId, value });
+  return scope === "workspace"
+    ? invoke("remote_prompt_respond", { id, promptId, value })
+    : invoke("ssh_prompt_respond", { id, promptId, value });
 }
 
 /** Abandon a prompt. Not the same as answering with an empty string, which
  *  the server would see as a real (failing) attempt. */
-export function cancelPrompt(id: number, promptId: number): Promise<void> {
-  return invoke("ssh_prompt_cancel", { id, promptId });
+export function cancelPrompt(
+  id: number,
+  promptId: number,
+  scope: "terminal" | "workspace" = "terminal",
+): Promise<void> {
+  return scope === "workspace"
+    ? invoke("remote_prompt_respond", { id, promptId, value: null })
+    : invoke("ssh_prompt_cancel", { id, promptId });
 }
 
 export function discoverKeys(): Promise<DiscoveredKey[]> {

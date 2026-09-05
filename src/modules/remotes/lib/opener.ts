@@ -2,13 +2,20 @@ import { create } from "zustand";
 import type { PtySession } from "@/modules/terminal";
 import { registerRemoteOpener } from "@/modules/terminal";
 import { cancelPrompt, openSsh, respondToPrompt } from "./ssh-bridge";
+import { profileToTarget } from "./target";
 import { findProfile } from "./store";
-import type { RemoteProfile, SshEvent, SshTarget } from "./types";
+import type { SshEvent } from "./types";
+
+/** Terminal sessions and remote workspaces are separate pools with separate
+ *  respond commands, so a prompt has to say which one it came from. */
+export type PromptScope = "terminal" | "workspace";
 
 /** A question the connect task is blocked on, surfaced as a modal. */
 export type PendingPrompt =
   | {
       kind: "hostKey";
+      /** Which connection pool owns this prompt; they have separate commands. */
+      scope?: PromptScope;
       sessionId: number;
       promptId: number;
       host: string;
@@ -21,6 +28,7 @@ export type PendingPrompt =
     }
   | {
       kind: "auth";
+      scope?: PromptScope;
       sessionId: number;
       promptId: number;
       authKind: "password" | "passphrase" | "keyboard-interactive";
@@ -53,7 +61,12 @@ export const usePromptStore = create<PromptState>((set, get) => ({
     const prompt = get().queue.find((p) => promptKey(p) === key);
     if (!prompt) return;
     set((s) => ({ queue: s.queue.filter((p) => promptKey(p) !== key) }));
-    void respondToPrompt(prompt.sessionId, prompt.promptId, value).catch(() => {
+    void respondToPrompt(
+      prompt.sessionId,
+      prompt.promptId,
+      value,
+      prompt.scope ?? "terminal",
+    ).catch(() => {
       // The session can vanish between the prompt and the answer; the connect
       // task is already unblocked by its own cancellation in that case.
     });
@@ -62,28 +75,16 @@ export const usePromptStore = create<PromptState>((set, get) => ({
     const prompt = get().queue.find((p) => promptKey(p) === key);
     if (!prompt) return;
     set((s) => ({ queue: s.queue.filter((p) => promptKey(p) !== key) }));
-    void cancelPrompt(prompt.sessionId, prompt.promptId).catch(() => {
+    void cancelPrompt(
+      prompt.sessionId,
+      prompt.promptId,
+      prompt.scope ?? "terminal",
+    ).catch(() => {
       // The session can vanish first; its own cancellation already unblocked
       // the connect task in that case.
     });
   },
 }));
-
-function profileToTarget(profile: RemoteProfile): SshTarget {
-  return {
-    host: profile.host,
-    port: profile.port,
-    user: profile.user,
-    auth: profile.auth,
-    term: profile.term,
-    cwd: profile.cwd,
-    command: profile.command,
-    keepaliveSecs: profile.keepaliveSecs,
-    connectTimeoutSecs: profile.connectTimeoutSecs,
-    compression: profile.compression,
-    env: profile.env,
-  };
-}
 
 const PHASE_LABEL: Record<string, string> = {
   connecting: "Connecting",

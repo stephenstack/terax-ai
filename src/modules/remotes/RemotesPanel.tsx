@@ -33,9 +33,17 @@ import type { RemoteProfile } from "./lib/types";
 type Props = {
   /** Open a terminal tab connected to this host. */
   onConnect: (profile: RemoteProfile) => void;
+  /** Point the explorer, editor and source control at this host. */
+  onOpenWorkspace: (profile: RemoteProfile) => void;
+  /** Profile id of the remote workspace currently open, if any. */
+  activeWorkspaceId: string | null;
 };
 
-export function RemotesPanel({ onConnect }: Props) {
+export function RemotesPanel({
+  onConnect,
+  onOpenWorkspace,
+  activeWorkspaceId,
+}: Props) {
   const profiles = useRemotesStore((s) => s.profiles);
   const groups = useRemotesStore((s) => s.groups);
   const hydrated = useRemotesStore((s) => s.hydrated);
@@ -98,6 +106,8 @@ export function RemotesPanel({ onConnect }: Props) {
               groups={groups}
               allNames={profiles.map((p) => p.name)}
               onConnect={onConnect}
+              onOpenWorkspace={onOpenWorkspace}
+              activeWorkspaceId={activeWorkspaceId}
               onEdit={setEditing}
             />
           ))
@@ -179,6 +189,8 @@ function GroupSection({
   groups,
   allNames,
   onConnect,
+  onOpenWorkspace,
+  activeWorkspaceId,
   onEdit,
 }: {
   group: { id: string; name: string; collapsed: boolean } | null;
@@ -186,6 +198,8 @@ function GroupSection({
   groups: Array<{ id: string; name: string }>;
   allNames: string[];
   onConnect: (profile: RemoteProfile) => void;
+  onOpenWorkspace: (profile: RemoteProfile) => void;
+  activeWorkspaceId: string | null;
   onEdit: (profile: RemoteProfile) => void;
 }) {
   const store = useRemotesStore.getState();
@@ -248,6 +262,8 @@ function GroupSection({
               groups={groups}
               allNames={allNames}
               onConnect={onConnect}
+              onOpenWorkspace={onOpenWorkspace}
+              activeWorkspaceId={activeWorkspaceId}
               onEdit={onEdit}
             />
           ))}
@@ -260,15 +276,20 @@ function HostRow({
   groups,
   allNames,
   onConnect,
+  onOpenWorkspace,
+  activeWorkspaceId,
   onEdit,
 }: {
   profile: RemoteProfile;
   groups: Array<{ id: string; name: string }>;
   allNames: string[];
   onConnect: (profile: RemoteProfile) => void;
+  onOpenWorkspace: (profile: RemoteProfile) => void;
+  activeWorkspaceId: string | null;
   onEdit: (profile: RemoteProfile) => void;
 }) {
   const store = useRemotesStore.getState();
+  const isWorkspace = activeWorkspaceId === profile.id;
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -280,7 +301,11 @@ function HostRow({
         >
           <span
             aria-hidden
-            className="size-1.5 shrink-0 rounded-full"
+            title={isWorkspace ? "Open as workspace" : undefined}
+            className={cn(
+              "size-1.5 shrink-0 rounded-full",
+              isWorkspace && "ring-2 ring-primary/50",
+            )}
             style={{ background: profile.color ?? "var(--muted-foreground)" }}
           />
           {/* The row itself connects; a nested button would be invalid markup,
@@ -313,7 +338,10 @@ function HostRow({
       </ContextMenuTrigger>
       <ContextMenuContent className="w-48">
         <ContextMenuItem onSelect={() => onConnect(profile)}>
-          Connect
+          Open terminal
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => onOpenWorkspace(profile)}>
+          {isWorkspace ? "Reopen as workspace" : "Open as workspace"}
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => onEdit(profile)}>

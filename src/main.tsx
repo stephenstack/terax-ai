@@ -24,6 +24,7 @@ if (import.meta.env.DEV && import.meta.env.VITE_REACT_SCAN === "true") {
 await Promise.all([
   invoke("pty_close_all").catch(() => {}),
   invoke("ssh_close_all").catch(() => {}),
+  invoke("remote_close_all").catch(() => {}),
 ]);
 
 // Seed before first paint so default tab mounts at target cwd (no flicker).

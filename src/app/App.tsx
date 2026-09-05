@@ -55,6 +55,7 @@ import {
   type ShortcutId,
   useGlobalShortcuts,
 } from "@/modules/shortcuts";
+import { toast } from "sonner";
 import {
   installRemoteOpener,
   profileAddress,
@@ -62,6 +63,7 @@ import {
   RemotePrompts,
   RemotesPanel,
   useRemotesStore,
+  useRemoteWorkspaceStore,
   type RemoteProfile,
 } from "@/modules/remotes";
 import {
@@ -692,6 +694,32 @@ export default function App() {
       newRemoteTab(profile.id, profile.name.trim() || profile.host);
     },
     [newRemoteTab],
+  );
+
+  const activeRemoteWorkspace = useRemoteWorkspaceStore(
+    (state) => state.active,
+  );
+  const openRemoteWorkspace = useCallback(
+    (profile: RemoteProfile) => {
+      void (async () => {
+        const opened = await useRemoteWorkspaceStore.getState().open(profile);
+        if (!opened) {
+          const error = useRemoteWorkspaceStore.getState().error;
+          if (error && !error.includes("cancelled")) {
+            toast.error(`Could not open ${profile.name || profile.host}`, {
+              description: error,
+            });
+          }
+          return;
+        }
+        await switchWorkspace({
+          kind: "ssh",
+          conn: opened.conn,
+          profileId: opened.profileId,
+        });
+      })();
+    },
+    [switchWorkspace],
   );
 
   const remoteCommandTargets = useMemo(
@@ -1499,7 +1527,11 @@ export default function App() {
                       className="min-h-0 flex-1 terax-panel-in"
                     >
                       {sidebarView === "remotes" ? (
-                        <RemotesPanel onConnect={connectToRemote} />
+                        <RemotesPanel
+                          onConnect={connectToRemote}
+                          onOpenWorkspace={openRemoteWorkspace}
+                          activeWorkspaceId={activeRemoteWorkspace?.profileId ?? null}
+                        />
                       ) : sidebarView === "explorer" ? (
                         <FileExplorer
                           ref={explorerRef}

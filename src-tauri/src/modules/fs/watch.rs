@@ -235,6 +235,12 @@ pub fn fs_watch_add(
     registry: State<'_, WorkspaceRegistry>,
 ) -> Result<(), String> {
     let workspace = WorkspaceEnv::from_option(workspace);
+    // A remote workspace has no local path to hand the OS watcher, and SFTP
+    // offers no change notification. The explorer refreshes on its own actions
+    // there; watching is simply unavailable rather than an error.
+    if workspace.remote_conn().is_some() {
+        return Ok(());
+    }
     let prepared = prepare_add(&registry, &workspace, paths);
     if prepared.is_empty() {
         return Ok(());
@@ -254,6 +260,9 @@ pub fn fs_watch_remove(
     state: State<'_, FsWatchState>,
 ) -> Result<(), String> {
     let workspace = WorkspaceEnv::from_option(workspace);
+    if workspace.remote_conn().is_some() {
+        return Ok(());
+    }
     // A removed/renamed dir no longer canonicalizes; fall back so the refcount
     // entry is still released.
     let prepared: Vec<PathBuf> = paths
