@@ -22,7 +22,11 @@ import { TERMINAL_CURSOR_STYLES } from "@/modules/settings/store";
 import { Delete02Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useState } from "react";
-import { pruneAppearance, type TerminalAppearance } from "@/modules/terminal";
+import {
+  pruneAppearance,
+  useTerminalFont,
+  type TerminalAppearance,
+} from "@/modules/terminal";
 import { agentIdentities, discoverKeys } from "./lib/ssh-bridge";
 import { useRemotesStore } from "./lib/store";
 import type {
@@ -37,6 +41,16 @@ type Props = {
   groups: RemoteGroup[];
   onClose: () => void;
 };
+
+/** The backend takes a `u16`; an out-of-range value would fail IPC
+ *  deserialization with an opaque error long after the user typed it. */
+export function parsePort(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.min(65535, Math.max(1, Math.round(parsed)));
+}
 
 const AUTH_LABEL: Record<RemoteAuthMethod["kind"], string> = {
   agent: "SSH agent",
@@ -129,12 +143,10 @@ export function HostDialog({ profile, groups, onClose }: Props) {
                 <Field label="Port">
                   <Input
                     type="number"
+                    min={1}
+                    max={65535}
                     value={draft.port ?? ""}
-                    onChange={(e) =>
-                      patch({
-                        port: e.target.value ? Number(e.target.value) : null,
-                      })
-                    }
+                    onChange={(e) => patch({ port: parsePort(e.target.value) })}
                     placeholder="22"
                   />
                 </Field>
@@ -300,10 +312,13 @@ export function HostDialog({ profile, groups, onClose }: Props) {
   );
 }
 
+/**
+ * Must match what `useTerminalSession` resolves against, not the raw
+ * preferences: the active theme can override the terminal font, and comparing
+ * a picked value to the wrong base would store a no-op as a real override.
+ */
 function useAppearanceBase(): TerminalAppearance {
-  const fontFamily = usePreferencesStore((p) => p.terminalFontFamily);
-  const fontSize = usePreferencesStore((p) => p.terminalFontSize);
-  const fontWeight = usePreferencesStore((p) => p.terminalFontWeight);
+  const { fontFamily, fontSize, fontWeight } = useTerminalFont();
   const letterSpacing = usePreferencesStore((p) => p.terminalLetterSpacing);
   const cursorStyle = usePreferencesStore((p) => p.terminalCursorStyle);
   const cursorBlink = usePreferencesStore((p) => p.terminalCursorBlink);

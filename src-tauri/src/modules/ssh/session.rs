@@ -34,8 +34,10 @@ pub enum SessionCmd {
     Close,
 }
 
+// `rename_all` renames variants only; struct-variant fields need their own
+// rule, and the frontend reads `promptId` / `conflictLine`.
 #[derive(Clone, Debug, Serialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum SshEvent {
     /// Coarse connect progress, so the pane can show what is happening rather
     /// than a blank grid.
@@ -69,10 +71,14 @@ pub enum SshEvent {
     Ready,
 }
 
+pub const CANCELLED: &str = "cancelled";
+
 /// Routes interactive questions from the connect task to the UI and back.
 pub struct PromptBus {
     next_id: AtomicU64,
-    pending: Mutex<HashMap<u64, oneshot::Sender<String>>>,
+    /// `None` over the channel means the user cancelled, which is distinct
+    /// from an empty answer: an empty password is a real attempt.
+    pending: Mutex<HashMap<u64, oneshot::Sender<Option<String>>>>,
     events: Channel<SshEvent>,
 }
 
@@ -99,15 +105,16 @@ impl PromptBus {
         self.pending.lock().unwrap().insert(id, tx);
         self.emit(build(id));
         match rx.await {
-            Ok(value) => Ok(value),
-            Err(_) => {
+            Ok(Some(value)) => Ok(value),
+            // Cancelled by the user, or the session went away mid-question.
+            Ok(None) | Err(_) => {
                 self.pending.lock().unwrap().remove(&id);
-                Err("cancelled".to_owned())
+                Err(CANCELLED.to_owned())
             }
         }
     }
 
-    pub fn respond(&self, prompt_id: u64, value: String) -> Result<(), String> {
+    pub fn respond(&self, prompt_id: u64, value: Option<String>) -> Result<(), String> {
         let tx = self
             .pending
             .lock()
@@ -199,7 +206,12 @@ impl client::Handler for Handler {
 
         match answer.as_str() {
             "accept-and-remember" => {
-                if let Err(e) = hostkey::learn(&self.host, self.port, &key, &self.known_hosts) {
+                let recorded = if info.status == HostKeyStatus::Changed {
+                    hostkey::replace(&self.host, self.port, &key, &self.known_hosts)
+                } else {
+                    hostkey::learn(&self.host, self.port, &key, &self.known_hosts)
+                };
+                if let Err(e) = recorded {
                     // Recording is best-effort: the user already chose to trust
                     // this key, so connect and tell them it was not persisted.
                     self.bus.emit(SshEvent::Error {
@@ -438,7 +450,7 @@ async fn authenticate(
             Ok(false) => {}
             // A cancelled prompt is the user's decision, not a method failure:
             // stop rather than falling through to the next prompt.
-            Err(e) if e == "cancelled" => return Err(e),
+            Err(e) if e == CANCELLED => return Err(e),
             Err(e) => {
                 log::debug!("ssh auth method failed: {e}");
                 last_error = Some(e);
@@ -670,6 +682,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn events_serialize_with_camel_case_fields() {
+        // The frontend reads `promptId` / `conflictLine`. A tagged enum's
+        // `rename_all` only renames variants, so the field rule has to be
+        // declared separately; without it every prompt is unanswerable.
+        let json = serde_json::to_string(&SshEvent::HostKey {
+            prompt_id: 7,
+            host: "h".into(),
+            port: 22,
+            fingerprint: "fp".into(),
+            algorithm: "ssh-ed25519".into(),
+            status: HostKeyStatus::Unknown,
+            conflict_line: Some(3),
+        })
+        .unwrap();
+        assert!(json.contains("\"promptId\":7"), "{json}");
+        assert!(json.contains("\"conflictLine\":3"), "{json}");
+        assert!(json.contains("\"type\":\"hostKey\""), "{json}");
+
+        let json = serde_json::to_string(&SshEvent::AuthPrompt {
+            prompt_id: 2,
+            kind: "password",
+            prompt: "pw".into(),
+            echo: false,
+            instructions: None,
+        })
+        .unwrap();
+        assert!(json.contains("\"promptId\":2"), "{json}");
+    }
+
+    #[test]
     fn parses_the_signals_a_terminal_sends() {
         assert!(parse_signal("INT").is_some());
         assert!(parse_signal("int").is_some());
@@ -709,7 +751,7 @@ mod tests {
         });
         // The id is deterministic: the bus hands out 1 first.
         tokio::task::yield_now().await;
-        bus.respond(1, "hunter2".into()).unwrap();
+        bus.respond(1, Some("hunter2".into())).unwrap();
         assert_eq!(task.await.unwrap().unwrap(), "hunter2");
     }
 
@@ -717,7 +759,53 @@ mod tests {
     async fn responding_to_an_unknown_prompt_is_an_error() {
         let events = Channel::new(|_| Ok(()));
         let bus = PromptBus::new(events);
-        assert!(bus.respond(99, "x".into()).is_err());
+        assert!(bus.respond(99, Some("x".into())).is_err());
+    }
+
+    #[tokio::test]
+    async fn an_explicit_cancel_is_not_an_empty_answer() {
+        let events = Channel::new(|_| Ok(()));
+        let bus = Arc::new(PromptBus::new(events));
+        let asker = bus.clone();
+        let task = tokio::spawn(async move {
+            asker
+                .ask(|prompt_id| SshEvent::AuthPrompt {
+                    prompt_id,
+                    kind: "password",
+                    prompt: "pw".into(),
+                    echo: false,
+                    instructions: None,
+                })
+                .await
+        });
+        tokio::task::yield_now().await;
+        bus.respond(1, None).unwrap();
+        assert_eq!(
+            task.await.unwrap().unwrap_err(),
+            CANCELLED,
+            "cancelling must abort the connect, not attempt an empty password"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_empty_answer_is_still_an_answer() {
+        let events = Channel::new(|_| Ok(()));
+        let bus = Arc::new(PromptBus::new(events));
+        let asker = bus.clone();
+        let task = tokio::spawn(async move {
+            asker
+                .ask(|prompt_id| SshEvent::AuthPrompt {
+                    prompt_id,
+                    kind: "password",
+                    prompt: "pw".into(),
+                    echo: false,
+                    instructions: None,
+                })
+                .await
+        });
+        tokio::task::yield_now().await;
+        bus.respond(1, Some(String::new())).unwrap();
+        assert_eq!(task.await.unwrap().unwrap(), "");
     }
 
     #[tokio::test]

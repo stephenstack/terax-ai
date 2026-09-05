@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { PtySession } from "@/modules/terminal";
 import { registerRemoteOpener } from "@/modules/terminal";
-import { openSsh, respondToPrompt } from "./ssh-bridge";
+import { cancelPrompt, openSsh, respondToPrompt } from "./ssh-bridge";
 import { findProfile } from "./store";
 import type { RemoteProfile, SshEvent, SshTarget } from "./types";
 
@@ -42,7 +42,8 @@ type PromptState = {
   queue: PendingPrompt[];
   push: (prompt: PendingPrompt) => void;
   resolve: (key: string, value: string) => void;
-  dismiss: (key: string) => void;
+  /** Abandon the prompt and the connect attempt behind it. */
+  cancel: (key: string) => void;
 };
 
 export const usePromptStore = create<PromptState>((set, get) => ({
@@ -57,8 +58,15 @@ export const usePromptStore = create<PromptState>((set, get) => ({
       // task is already unblocked by its own cancellation in that case.
     });
   },
-  dismiss: (key) =>
-    set((s) => ({ queue: s.queue.filter((p) => promptKey(p) !== key) })),
+  cancel: (key) => {
+    const prompt = get().queue.find((p) => promptKey(p) === key);
+    if (!prompt) return;
+    set((s) => ({ queue: s.queue.filter((p) => promptKey(p) !== key) }));
+    void cancelPrompt(prompt.sessionId, prompt.promptId).catch(() => {
+      // The session can vanish first; its own cancellation already unblocked
+      // the connect task in that case.
+    });
+  },
 }));
 
 function profileToTarget(profile: RemoteProfile): SshTarget {

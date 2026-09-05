@@ -47,7 +47,7 @@ pub struct SshTarget {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum AuthMethod {
     /// Keys held by a running ssh-agent, in the agent's own order.
     Agent,

@@ -42,21 +42,6 @@ function normalizeScrollback(value: number | undefined): number | undefined {
   return Math.min(MAX_SCROLLBACK, Math.max(0, Math.round(value)));
 }
 
-/**
- * True when an override actually changes something.
- *
- * The renderer pool shares one configuration across its slots, so a session
- * with overrides may only push them while it is the focused pane. A session
- * with none pushes the global values unconditionally, exactly as every local
- * terminal already does.
- */
-export function hasAppearanceOverrides(
-  appearance: TerminalAppearanceOverride | undefined,
-): boolean {
-  if (!appearance) return false;
-  return Object.values(appearance).some((v) => v !== undefined);
-}
-
 export function resolveAppearance(
   base: TerminalAppearance,
   appearance: TerminalAppearanceOverride | undefined,

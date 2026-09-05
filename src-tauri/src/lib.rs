@@ -265,6 +265,7 @@ pub fn run() {
             ssh::ssh_resize,
             ssh::ssh_signal,
             ssh::ssh_prompt_respond,
+            ssh::ssh_prompt_cancel,
             ssh::ssh_close,
             ssh::ssh_close_all,
             ssh::ssh_discover_keys,

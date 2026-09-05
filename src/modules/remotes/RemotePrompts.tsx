@@ -116,6 +116,7 @@ const AUTH_TITLE: Record<AuthPrompt["authKind"], string> = {
 
 function AuthDialog({ prompt }: { prompt: AuthPrompt }) {
   const resolve = usePromptStore((s) => s.resolve);
+  const cancel = usePromptStore((s) => s.cancel);
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const key = promptKey(prompt);
@@ -130,7 +131,7 @@ function AuthDialog({ prompt }: { prompt: AuthPrompt }) {
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open) resolve(key, "");
+        if (!open) cancel(key);
       }}
     >
       <DialogContent className="sm:max-w-md">
@@ -163,11 +164,7 @@ function AuthDialog({ prompt }: { prompt: AuthPrompt }) {
           </div>
 
           <DialogFooter className="gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => resolve(key, "")}
-            >
+            <Button type="button" variant="ghost" onClick={() => cancel(key)}>
               Cancel
             </Button>
             <Button type="submit">Continue</Button>

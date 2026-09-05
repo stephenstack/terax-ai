@@ -7,7 +7,9 @@
 
 use std::path::{Path, PathBuf};
 
-use russh::keys::known_hosts::{check_known_hosts_path, learn_known_hosts_path};
+use russh::keys::known_hosts::{
+    check_known_hosts_path, known_host_keys_path, learn_known_hosts_path,
+};
 use russh::keys::PublicKey;
 use serde::Serialize;
 
@@ -81,6 +83,41 @@ pub fn learn(host: &str, port: u16, key: &PublicKey, path: &Path) -> Result<(), 
     }
     learn_known_hosts_path(host, port, key, path)
         .map_err(|e| format!("could not record host key: {e}"))
+}
+
+/// Trust a key that replaces a recorded one.
+///
+/// `learn` only appends, and the verification walk fails on the first
+/// conflicting entry it meets, so appending alone would leave the stale line
+/// winning and re-raise the change warning on every later connection. Drop the
+/// entries this key actually supersedes (same host, same algorithm) first.
+pub fn replace(host: &str, port: u16, key: &PublicKey, path: &Path) -> Result<(), String> {
+    let superseded: Vec<usize> = known_host_keys_path(host, port, path)
+        .map_err(|e| format!("could not read known_hosts: {e}"))?
+        .into_iter()
+        .filter(|(_, recorded)| recorded.algorithm() == key.algorithm())
+        .map(|(line, _)| line)
+        .collect();
+
+    if !superseded.is_empty() {
+        let contents = std::fs::read_to_string(path)
+            .map_err(|e| format!("could not read known_hosts: {e}"))?;
+        // `known_host_keys_path` numbers lines from 1.
+        let kept: Vec<&str> = contents
+            .lines()
+            .enumerate()
+            .filter(|(i, _)| !superseded.contains(&(i + 1)))
+            .map(|(_, line)| line)
+            .collect();
+        let mut rewritten = kept.join("\n");
+        if !rewritten.is_empty() {
+            rewritten.push('\n');
+        }
+        std::fs::write(path, rewritten)
+            .map_err(|e| format!("could not rewrite known_hosts: {e}"))?;
+    }
+
+    learn(host, port, key, path)
 }
 
 #[cfg(test)]
@@ -177,6 +214,55 @@ mod tests {
         let key = test_key(1);
         let fp = fingerprint(&key);
         assert!(fp.starts_with("SHA256:"), "{fp}");
+    }
+
+    #[test]
+    fn replacing_a_changed_key_makes_the_new_one_trusted() {
+        let old = test_key(1);
+        let new = test_key(2);
+        let path = temp_path("known_hosts");
+        learn("example.com", 22, &old, &path).unwrap();
+        assert_eq!(
+            verify("example.com", 22, &new, &path).unwrap().status,
+            HostKeyStatus::Changed
+        );
+        replace("example.com", 22, &new, &path).unwrap();
+        assert_eq!(
+            verify("example.com", 22, &new, &path).unwrap().status,
+            HostKeyStatus::Trusted,
+            "accepting a replacement must stick, not re-warn on every connect"
+        );
+    }
+
+    #[test]
+    fn replacing_leaves_other_hosts_intact() {
+        let a_old = test_key(1);
+        let a_new = test_key(2);
+        let b = test_key(3);
+        let path = temp_path("known_hosts");
+        learn("a.example", 22, &a_old, &path).unwrap();
+        learn("b.example", 22, &b, &path).unwrap();
+        replace("a.example", 22, &a_new, &path).unwrap();
+        assert_eq!(
+            verify("b.example", 22, &b, &path).unwrap().status,
+            HostKeyStatus::Trusted
+        );
+        assert_eq!(
+            verify("a.example", 22, &a_old, &path).unwrap().status,
+            HostKeyStatus::Changed,
+            "the superseded key must no longer be trusted"
+        );
+    }
+
+    #[test]
+    fn replacing_an_unknown_host_just_records_it() {
+        let key = test_key(1);
+        let path = temp_path("known_hosts");
+        replace("example.com", 22, &key, &path).unwrap();
+        assert_eq!(
+            verify("example.com", 22, &key, &path).unwrap().status,
+            HostKeyStatus::Trusted
+        );
     }
 
     #[test]

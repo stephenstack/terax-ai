@@ -25,7 +25,6 @@ import {
 } from "./osc-handlers";
 import { openPty, type PtySession } from "./pty-bridge";
 import {
-  hasAppearanceOverrides,
   resolveAppearance,
   type TerminalAppearanceOverride,
 } from "./appearanceOverride";
@@ -946,12 +945,12 @@ export function useTerminalSession({
     };
   }, [leafId, blocks, remoteId]);
 
-  // The renderer pool holds one shared configuration, so a session carrying
-  // overrides may only push them while it is the focused pane. A session with
-  // none pushes the global values unconditionally, which is what every local
-  // terminal has always done and is idempotent across panes.
-  const overrides = hasAppearanceOverrides(appearance);
-  const owns = !overrides || (visible && focused);
+  // The renderer pool holds one shared configuration rather than per-slot
+  // state, so exactly one pane may drive it: the active leaf of the visible
+  // tab. Gating every pane (not just those with overrides) is what restores
+  // the global values when focus leaves a host that overrode them, because
+  // the incoming pane's `owns` flips and re-runs its apply effects.
+  const owns = visible && focused;
 
   const { fontFamily, fontWeight, fontSize } = useTerminalFont();
   const zoomLevel = usePreferencesStore((p) => p.zoomLevel);

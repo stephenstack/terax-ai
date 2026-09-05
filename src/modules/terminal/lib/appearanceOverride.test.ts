@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  hasAppearanceOverrides,
   pruneAppearance,
   resolveAppearance,
   type TerminalAppearance,
@@ -15,24 +14,6 @@ const base: TerminalAppearance = {
   cursorBlink: true,
   scrollback: 1000,
 };
-
-describe("hasAppearanceOverrides", () => {
-  it("is false for absent or empty appearance", () => {
-    expect(hasAppearanceOverrides(undefined)).toBe(false);
-    expect(hasAppearanceOverrides({})).toBe(false);
-  });
-
-  it("ignores explicitly undefined fields", () => {
-    expect(hasAppearanceOverrides({ fontSize: undefined })).toBe(false);
-  });
-
-  it("is true once any field is set", () => {
-    expect(hasAppearanceOverrides({ fontSize: 15 })).toBe(true);
-    // Falsy but deliberate values still count as overrides.
-    expect(hasAppearanceOverrides({ cursorBlink: false })).toBe(true);
-    expect(hasAppearanceOverrides({ scrollback: 0 })).toBe(true);
-  });
-});
 
 describe("resolveAppearance", () => {
   it("returns the base untouched when there is nothing to override", () => {

@@ -10,7 +10,7 @@ mod hostkey;
 mod session;
 mod target;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -25,6 +25,11 @@ pub struct SshState {
     /// prompt fires before `ssh_open` returns, so the answer has to reach a bus
     /// that is not reachable through `sessions` yet.
     pending: Mutex<HashMap<u32, Arc<PromptBus>>>,
+    /// Ids closed while their handshake was still in flight. Cancelling the
+    /// bus only unblocks a prompt; a connect already past that point still
+    /// succeeds, and without this its session would be inserted after the
+    /// close and never reaped.
+    closed_while_opening: Mutex<HashSet<u32>>,
     // Starts at 1 for the same reason as PtyState: the frontend treats 0 as
     // "unset". Never reused.
     next_id: AtomicU32,
@@ -35,6 +40,7 @@ impl Default for SshState {
         Self {
             sessions: RwLock::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
+            closed_while_opening: Mutex::new(HashSet::new()),
             next_id: AtomicU32::new(1),
         }
     }
@@ -84,11 +90,17 @@ pub async fn ssh_open(
 
     match result {
         Ok(sess) => {
+            if state.closed_while_opening.lock().unwrap().remove(&id) {
+                sess.close();
+                log::info!("ssh id={id} closed while still connecting; reaped");
+                return Err("cancelled".to_string());
+            }
             state.sessions.write().unwrap().insert(id, sess);
             log::info!("ssh opened id={id} cols={cols} rows={rows}");
             Ok(id)
         }
         Err(e) => {
+            state.closed_while_opening.lock().unwrap().remove(&id);
             log::warn!("ssh_open id={id} failed: {e}");
             Err(e)
         }
@@ -155,6 +167,26 @@ pub fn ssh_prompt_respond(
     prompt_id: u64,
     value: String,
 ) -> Result<(), String> {
+    respond(&state, id, prompt_id, Some(value))
+}
+
+/// Abandon a prompt. Distinct from answering with an empty string, which is a
+/// real (and usually failing) authentication attempt.
+#[tauri::command]
+pub fn ssh_prompt_cancel(
+    state: tauri::State<SshState>,
+    id: u32,
+    prompt_id: u64,
+) -> Result<(), String> {
+    respond(&state, id, prompt_id, None)
+}
+
+fn respond(
+    state: &SshState,
+    id: u32,
+    prompt_id: u64,
+    value: Option<String>,
+) -> Result<(), String> {
     if let Some(session) = state.get(id) {
         return session.bus.respond(prompt_id, value);
     }
@@ -171,9 +203,11 @@ pub fn ssh_prompt_respond(
 #[tauri::command]
 pub fn ssh_close(state: tauri::State<SshState>, id: u32) -> Result<(), String> {
     // Cancel any in-flight prompt too: closing a pane mid-password must not
-    // leave the connect task parked forever.
+    // leave the connect task parked forever. A handshake past the prompt stage
+    // will still succeed, so leave a tombstone for `ssh_open` to find.
     if let Some(bus) = state.pending.lock().unwrap().remove(&id) {
         bus.cancel_all();
+        state.closed_while_opening.lock().unwrap().insert(id);
     }
     let session = state.sessions.write().unwrap().remove(&id);
     if let Some(s) = session {
@@ -188,8 +222,13 @@ pub fn ssh_close(state: tauri::State<SshState>, id: u32) -> Result<(), String> {
 /// A webview reload orphans every session in this still-running process.
 #[tauri::command]
 pub fn ssh_close_all(state: tauri::State<SshState>) -> Result<usize, String> {
-    for (_, bus) in state.pending.lock().unwrap().drain() {
-        bus.cancel_all();
+    {
+        let mut pending = state.pending.lock().unwrap();
+        let mut tombstones = state.closed_while_opening.lock().unwrap();
+        for (id, bus) in pending.drain() {
+            bus.cancel_all();
+            tombstones.insert(id);
+        }
     }
     let drained: Vec<(u32, Arc<SshSession>)> = {
         let mut sessions = state.sessions.write().unwrap();
@@ -285,15 +324,43 @@ pub async fn ssh_agent_identities() -> Result<Vec<String>, String> {
         .collect())
 }
 
+/// The name `ssh` would use when a config entry omits `User`.
+fn local_username() -> Option<String> {
+    std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .ok()
+        .map(|u| u.trim().to_owned())
+        .filter(|u| !u.is_empty())
+        .or_else(|| {
+            dirs::home_dir()
+                .and_then(|h| h.file_name().map(|n| n.to_string_lossy().into_owned()))
+                .filter(|u| !u.is_empty())
+        })
+}
+
 /// Parse `~/.ssh/config` for the import flow.
+///
+/// An entry without `User` inherits the local username in `ssh`, so fill that
+/// in here rather than importing a profile that cannot connect. The parser
+/// itself stays pure and reports only what the file actually says.
 #[tauri::command]
 pub fn ssh_read_config() -> Result<Vec<config::SshConfigHost>, String> {
     let Some(path) = dirs::home_dir().map(|h| h.join(".ssh").join("config")) else {
         return Ok(Vec::new());
     };
-    match std::fs::read_to_string(&path) {
-        Ok(contents) => Ok(config::parse_ssh_config(&contents)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(e) => Err(format!("could not read {}: {e}", path.display())),
-    }
+    let contents = match std::fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("could not read {}: {e}", path.display())),
+    };
+    let fallback = local_username();
+    Ok(config::parse_ssh_config(&contents)
+        .into_iter()
+        .map(|mut host| {
+            if host.user.is_none() {
+                host.user = fallback.clone();
+            }
+            host
+        })
+        .collect())
 }

@@ -95,6 +95,12 @@ export function respondToPrompt(
   return invoke("ssh_prompt_respond", { id, promptId, value });
 }
 
+/** Abandon a prompt. Not the same as answering with an empty string, which
+ *  the server would see as a real (failing) attempt. */
+export function cancelPrompt(id: number, promptId: number): Promise<void> {
+  return invoke("ssh_prompt_cancel", { id, promptId });
+}
+
 export function discoverKeys(): Promise<DiscoveredKey[]> {
   return invoke<DiscoveredKey[]>("ssh_discover_keys");
 }

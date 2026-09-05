@@ -3,11 +3,11 @@ export { TerminalStack } from "./TerminalStack";
 export {
   type TerminalAppearance,
   type TerminalAppearanceOverride,
-  hasAppearanceOverrides,
   pruneAppearance,
   resolveAppearance,
 } from "./lib/appearanceOverride";
 export type { PtySession } from "./lib/pty-bridge";
+export { useTerminalFont } from "./lib/useTerminalFont";
 export {
   registerRemoteOpener,
   clearFocusedTerminal,
