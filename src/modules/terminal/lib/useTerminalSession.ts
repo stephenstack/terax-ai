@@ -29,6 +29,10 @@ import {
   resolveAppearance,
   type TerminalAppearanceOverride,
 } from "./appearanceOverride";
+import {
+  remoteLeafHasForegroundProcess,
+  remoteLeafHoldsSlot,
+} from "./foregroundPolicy";
 import "../block/block.css";
 import { ensureAgentActivityListener, isAgentActivePty } from "./agentActivity";
 import {
@@ -295,19 +299,29 @@ export function clearFocusedTerminal(): boolean {
   return false;
 }
 
+// Both directions of the PTY-id mapping deliberately exclude remote sessions.
+// SSH ids come from `SshState` and PTY ids from `PtyState`, two independent
+// counters that both start at 1, so a remote session sharing a number with a
+// local shell would otherwise correlate to that shell's agent-activity entry.
 export function leafIdForPty(ptyId: number): number | null {
   for (const [leafId, s] of sessions) {
-    if (s.pty?.id === ptyId) return leafId;
+    if (!s.remoteId && s.pty?.id === ptyId) return leafId;
   }
   return null;
 }
 
 export function ptyIdForLeaf(leafId: number): number | null {
-  return sessions.get(leafId)?.pty?.id ?? null;
+  const s = sessions.get(leafId);
+  if (!s || s.remoteId) return null;
+  return s.pty?.id ?? null;
 }
 
 function leafBusy(s: Session): boolean {
-  return s.commandRunning || (s.pty !== null && isAgentActivePty(s.pty.id));
+  if (s.commandRunning) return true;
+  // The agent detector runs on the PTY reader and keys by PTY id, so a remote
+  // session's id would index an unrelated local shell's entry.
+  if (s.remoteId) return false;
+  return s.pty !== null && isAgentActivePty(s.pty.id);
 }
 
 const HIDDEN_RELEASE_DELAY_MS = 300;
@@ -342,6 +356,8 @@ async function releaseIfIdle(leafId: number, s: Session): Promise<void> {
 async function leafHasForegroundJob(leafId: number): Promise<boolean> {
   const s = sessions.get(leafId);
   if (!s?.pty || s.shellExited) return false;
+  // An SSH id is not a PTY id; see foregroundPolicy.
+  if (s.remoteId) return remoteLeafHoldsSlot();
   try {
     return await invoke<boolean>("pty_has_foreground_job", { id: s.pty.id });
   } catch (e) {
@@ -819,6 +835,8 @@ export async function leafHasForegroundProcess(
 ): Promise<boolean> {
   const s = sessions.get(leafId);
   if (!s?.pty || s.shellExited) return false;
+  // An SSH id is not a PTY id; see foregroundPolicy.
+  if (s.remoteId) return remoteLeafHasForegroundProcess(s.commandRunning);
   try {
     const result = await invoke<boolean>("pty_has_foreground_process", {
       id: s.pty.id,
