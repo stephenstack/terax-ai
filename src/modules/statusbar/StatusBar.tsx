@@ -22,7 +22,8 @@ type Props = {
   filePath?: string | null;
   home: string | null;
   onCd: (path: string) => void;
-  onWorkspaceChange: (env: WorkspaceEnv) => void;
+  /** Resolves false when the switch was refused, e.g. unsaved editor tabs. */
+  onWorkspaceChange: (env: WorkspaceEnv) => Promise<boolean>;
   onOpenMini: () => void;
   /** Opens the panel, or Settings > Models when no API key is loaded. */
   onOpenAi: () => void;

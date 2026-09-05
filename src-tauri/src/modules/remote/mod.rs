@@ -59,6 +59,15 @@ impl RemoteState {
         self.conns.read().unwrap().get(&id).cloned()
     }
 
+    /// Register an already-open connection. Only used by the live tests, which
+    /// build a connection directly rather than through `remote_open`.
+    #[doc(hidden)]
+    pub fn insert_for_test(&self, conn: Arc<RemoteConn>) -> u32 {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        self.conns.write().unwrap().insert(id, conn);
+        id
+    }
+
     /// Look up a connection for an fs/git command, with a message the UI can
     /// show rather than a bare "no session".
     pub fn require(&self, id: u32) -> Result<Arc<RemoteConn>, String> {
@@ -138,6 +147,13 @@ pub fn remote_prompt_respond(
     bus.respond(prompt_id, value)
 }
 
+/// Whether a connection is still usable. The frontend caches an open
+/// workspace and needs to know a cached entry has not gone stale.
+#[tauri::command]
+pub fn remote_is_open(state: tauri::State<Arc<RemoteState>>, id: u32) -> bool {
+    state.get(id).is_some()
+}
+
 #[tauri::command]
 pub async fn remote_close(
     state: tauri::State<'_, Arc<RemoteState>>,
@@ -160,7 +176,9 @@ pub async fn remote_close(
 }
 
 #[tauri::command]
-pub async fn remote_close_all(state: tauri::State<'_, RemoteState>) -> Result<usize, String> {
+pub async fn remote_close_all(
+    state: tauri::State<'_, Arc<RemoteState>>,
+) -> Result<usize, String> {
     {
         let mut pending = state.pending.lock().unwrap();
         let mut tombstones = state.closed_while_opening.lock().unwrap();
@@ -231,6 +249,28 @@ pub async fn remote_authorize(
         .unwrap_or_else(|_| resolved.clone());
     c.authorize_root(&canonical);
     Ok(canonical)
+}
+
+/// Read a remote file from synchronous code.
+///
+/// Bridges to the async runtime with a channel, the same way the git process
+/// layer does, so the sync git operations can read a working-tree file without
+/// every caller becoming async.
+pub fn read_file_blocking(conn: u32, path: &str) -> Result<Vec<u8>, String> {
+    let state = global().ok_or_else(|| "remote state unavailable".to_owned())?;
+    let connection = state.require(conn)?;
+    let path = path.to_owned();
+    let (tx, rx) = std::sync::mpsc::channel();
+    tauri::async_runtime::spawn(async move {
+        let sftp = connection.sftp().await;
+        let _ = tx.send(
+            sftp.read(path.clone())
+                .await
+                .map_err(|e| format!("could not read {path}: {e}")),
+        );
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(30))
+        .map_err(|_| "timed out reading the remote file".to_owned())?
 }
 
 /// Resolve a path the frontend sent against the remote home, so `~` works and

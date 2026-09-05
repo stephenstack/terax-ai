@@ -212,6 +212,16 @@ pub async fn create_dir(conn: &RemoteConn, dir: &str) -> Result<(), String> {
         .map_err(|e| format!("could not create {dir}: {e}"))
 }
 
+/// Whether a path is a directory, following symlinks. False when it cannot be
+/// stated at all, which callers treat the same as "not a directory".
+pub async fn is_dir(conn: &RemoteConn, target: &str) -> bool {
+    let sftp = conn.sftp().await;
+    match sftp.metadata(target.to_owned()).await {
+        Ok(meta) => meta.file_type().is_dir(),
+        Err(_) => false,
+    }
+}
+
 pub async fn rename(conn: &RemoteConn, from: &str, to: &str) -> Result<(), String> {
     let sftp = conn.sftp().await;
     if sftp.try_exists(to.to_owned()).await.unwrap_or(false) {

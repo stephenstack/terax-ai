@@ -31,6 +31,9 @@ pub fn canonical_dir(
     path: &str,
     workspace: &WorkspaceEnv,
 ) -> Result<ResolvedGitDirectory> {
+    if let Some(conn) = workspace.remote_conn() {
+        return remote_dir(conn, path, workspace);
+    }
     let candidate = resolve_path(path, workspace);
     if !candidate.is_dir() {
         return Err(GitError::NotADirectory(path.to_string()));
@@ -50,16 +53,92 @@ pub fn canonical_dir(
     })
 }
 
+/// Resolve a directory on a remote workspace.
+///
+/// There is no local path and no local filesystem to consult, so this is
+/// string arithmetic against the connection's home. Whether the directory
+/// exists is left to git, which reports it better than a probe would and
+/// saves a round trip.
+fn remote_dir(conn: u32, path: &str, workspace: &WorkspaceEnv) -> Result<ResolvedGitDirectory> {
+    let state = crate::modules::remote::global()
+        .ok_or_else(|| GitError::Spawn("remote state unavailable".into()))?;
+    let connection = state
+        .get(conn)
+        .ok_or_else(|| GitError::NotADirectory(path.to_string()))?;
+    let git_path = crate::modules::remote::resolve(&connection, path);
+    Ok(ResolvedGitDirectory {
+        workspace: workspace.clone(),
+        // Carries the remote path so pathspec arithmetic still works. Nothing
+        // ever hands it to the local filesystem: every consumer branches on
+        // `workspace.remote_conn()` first.
+        local_path: PathBuf::from(&git_path),
+        git_path,
+    })
+}
+
+/// Whether this directory is inside a workspace the user opened.
+///
+/// A remote workspace is authorized on its own connection; the local registry
+/// knows nothing about the other machine, so consulting it would reject every
+/// remote path. Single-sourced because several git entry points check this
+/// directly rather than going through `authorized_repo_root`.
+pub fn ensure_authorized(registry: &WorkspaceRegistry, dir: &ResolvedGitDirectory) -> Result<()> {
+    let Some(conn) = dir.workspace.remote_conn() else {
+        if registry.is_authorized(&dir.local_path) {
+            return Ok(());
+        }
+        return Err(GitError::PathOutsideWorkspace(dir.local_path.clone()));
+    };
+    let state = crate::modules::remote::global()
+        .ok_or_else(|| GitError::Spawn("remote state unavailable".into()))?;
+    let connection = state
+        .get(conn)
+        .ok_or_else(|| GitError::PathOutsideWorkspace(dir.local_path.clone()))?;
+    connection
+        .authorize_mutation(&dir.git_path)
+        .map_err(|_| GitError::PathOutsideWorkspace(dir.local_path.clone()))
+}
+
+/// Remember a resolved repo root so later operations inside it are allowed.
+/// Best effort, matching the local behaviour it replaces.
+pub fn remember_authorized(registry: &WorkspaceRegistry, dir: &ResolvedGitDirectory) {
+    match dir.workspace.remote_conn() {
+        Some(conn) => {
+            if let Some(state) = crate::modules::remote::global() {
+                if let Some(connection) = state.get(conn) {
+                    connection.authorize_root(&dir.git_path);
+                }
+            }
+        }
+        None => {
+            let _ = registry.authorize(&dir.local_path);
+        }
+    }
+}
+
 pub fn authorized_repo_root(
     registry: &WorkspaceRegistry,
     path: &str,
     workspace: &WorkspaceEnv,
 ) -> Result<ResolvedGitDirectory> {
     let canonical = canonical_dir(registry, path, workspace)?;
-    if !registry.is_authorized(&canonical.local_path) {
-        return Err(GitError::PathOutsideWorkspace(canonical.local_path.clone()));
-    }
+    ensure_authorized(registry, &canonical)?;
     Ok(canonical)
+}
+
+/// Validate a repo-relative path for a remote workspace.
+///
+/// Pure containment arithmetic: there is no remote filesystem to canonicalize
+/// against, and a deleted path has to resolve for staging a removal anyway.
+pub fn resolve_within_remote_repo(repo_root: &str, rel: &str) -> Result<String> {
+    if !is_safe_pathspec(rel) {
+        return Err(GitError::InvalidPath(rel.into()));
+    }
+    let joined = crate::modules::remote::path::join(repo_root, rel);
+    if !crate::modules::remote::path::is_within(repo_root, &joined) {
+        return Err(GitError::PathOutsideWorkspace(PathBuf::from(joined)));
+    }
+    Ok(joined)
 }
 
 pub fn resolve_within_repo(repo_root: &Path, rel: &str) -> Result<PathBuf> {

@@ -329,17 +329,62 @@ pub fn fs_rename_local(
 
 /// Moves a path without clobbering unless replacement was explicitly approved.
 #[tauri::command]
-pub fn fs_move(
+pub async fn fs_move(
     from: String,
     to: String,
     root: String,
     expected_conflict: Option<String>,
     workspace: Option<WorkspaceEnv>,
     registry: tauri::State<'_, WorkspaceRegistry>,
+    remote: tauri::State<'_, std::sync::Arc<crate::modules::remote::RemoteState>>,
 ) -> Result<FsMoveResult, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
+    if let Some(conn) = workspace.remote_conn() {
+        return remote_move(conn, &from, &to, expected_conflict.as_deref(), &remote).await;
+    }
     let root = resolve_authorized_root(&root, &workspace, &registry)?;
     fs_move_impl(&from, &to, &root, expected_conflict.as_deref(), &workspace)
+}
+
+/// Move on a remote workspace.
+///
+/// Same contract as the local path: never clobber unless the exact conflict
+/// the user was shown is passed back. The conflict token is the target path,
+/// which is all the caller needs to confirm it is replacing what it was told
+/// about.
+async fn remote_move(
+    conn: u32,
+    from: &str,
+    to: &str,
+    expected_conflict: Option<&str>,
+    remote: &crate::modules::remote::RemoteState,
+) -> Result<FsMoveResult, String> {
+    let c = remote.require(conn)?;
+    let from_r = crate::modules::remote::resolve(&c, from);
+    let to_r = crate::modules::remote::resolve(&c, to);
+    c.authorize_mutation(&from_r)?;
+    c.authorize_mutation(&to_r)?;
+    if from_r == to_r {
+        return Ok(FsMoveResult::Moved);
+    }
+
+    let exists = {
+        let sftp = c.sftp().await;
+        sftp.try_exists(to_r.clone()).await.unwrap_or(false)
+    };
+    if exists {
+        if expected_conflict != Some(to_r.as_str()) {
+            return Ok(FsMoveResult::Conflict {
+                // A directory merge is not something SFTP can do safely, so
+                // only a file may be replaced.
+                replaceable: !crate::modules::remote::fs::is_dir(&c, &to_r).await,
+                token: to_r.clone(),
+            });
+        }
+        crate::modules::remote::fs::delete(&c, std::slice::from_ref(&to_r)).await?;
+    }
+    crate::modules::remote::fs::rename(&c, &from_r, &to_r).await?;
+    Ok(FsMoveResult::Moved)
 }
 
 fn fs_move_impl(

@@ -38,12 +38,19 @@ export type PendingPrompt =
       profileName: string;
     };
 
-/** Prompt ids restart at 1 for every session, so only the pair is unique. */
+/**
+ * Prompt ids restart at 1 for every session, and terminal sessions and remote
+ * workspaces are numbered by independent counters that both start at 1. The
+ * pool therefore has to be part of the key, or a terminal prompt and a
+ * workspace prompt raised at the same time collide and answering one silently
+ * discards the other.
+ */
 export function promptKey(prompt: {
+  scope?: PromptScope;
   sessionId: number;
   promptId: number;
 }): string {
-  return `${prompt.sessionId}:${prompt.promptId}`;
+  return `${prompt.scope ?? "terminal"}:${prompt.sessionId}:${prompt.promptId}`;
 }
 
 type PromptState = {
@@ -180,7 +187,9 @@ export function installRemoteOpener(): void {
     } catch (e) {
       // A failed or cancelled connect leaves nothing to answer.
       usePromptStore.setState((prev) => ({
-        queue: prev.queue.filter((p) => p.sessionId !== sessionId),
+        queue: prev.queue.filter(
+          (p) => (p.scope ?? "terminal") !== "terminal" || p.sessionId !== sessionId,
+        ),
       }));
       throw e;
     }

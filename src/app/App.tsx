@@ -260,11 +260,12 @@ export default function App() {
   const sourceControlSpaceId = activeSpaceId ?? DEFAULT_SPACE_ID;
 
   const handleWorkspaceChange = useCallback(
-    async (env: WorkspaceEnv) => {
+    async (env: WorkspaceEnv): Promise<boolean> => {
       const switched = await switchWorkspace(env);
       if (switched && activeSpaceId) {
         useSpaces.getState().setEnv(activeSpaceId, env);
       }
+      return switched;
     },
     [switchWorkspace, activeSpaceId],
   );

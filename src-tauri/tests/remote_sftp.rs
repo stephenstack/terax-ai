@@ -456,3 +456,92 @@ live!(a_forward_needs_a_remote_host_and_port, c, _e, {
     );
     assert!(tunnels.list().is_empty(), "a rejected spec must not register");
 });
+
+// --- Remote git -----------------------------------------------------------
+//
+// The whole git path runs through canonical_dir / authorized_repo_root before
+// it ever reaches run_git, so these check the resolution layer as much as the
+// command itself.
+
+/// The git layer reaches the connection through a process-global handle, set
+/// once at startup in the app. `OnceLock` means a second call is ignored, so
+/// the tests have to share one state rather than each installing their own.
+fn shared_remote_state() -> std::sync::Arc<terax_lib::modules::remote::RemoteState> {
+    use terax_lib::modules::remote;
+    static STATE: std::sync::OnceLock<std::sync::Arc<remote::RemoteState>> =
+        std::sync::OnceLock::new();
+    STATE
+        .get_or_init(|| {
+            let state = std::sync::Arc::new(remote::RemoteState::default());
+            remote::set_global(state.clone());
+            state
+        })
+        .clone()
+}
+
+live!(resolves_and_reports_status_for_a_remote_repo, c, e, {
+    use terax_lib::modules::workspace::{WorkspaceEnv, WorkspaceRegistry};
+
+    let state = shared_remote_state();
+    let conn = state.insert_for_test(std::sync::Arc::new(c));
+    let workspace = WorkspaceEnv::Ssh { conn };
+
+    state
+        .get(conn)
+        .unwrap()
+        .authorize_root(&e.root);
+
+    // run_git blocks while it waits, exactly as the local path does when it
+    // waits on a child process. In the app it runs on Tauri's blocking path;
+    // calling it straight from an async context would tie up a runtime worker.
+    let root = e.root.clone();
+    let ws = workspace.clone();
+    let repo = tokio::task::spawn_blocking(move || {
+        let registry = WorkspaceRegistry::default();
+        terax_lib::modules::git::operations::resolve_repo(&registry, &root, &ws)
+    })
+    .await
+    .unwrap()
+    .expect("resolve the remote repo");
+    assert!(repo.is_some(), "the test root should be a git repo");
+    let repo = repo.unwrap();
+    assert!(
+        repo.repo_root.contains(&e.root) || e.root.contains(&repo.repo_root),
+        "repo root {} should relate to {}",
+        repo.repo_root,
+        e.root
+    );
+
+    let repo_root = repo.repo_root.clone();
+    let ws = workspace.clone();
+    let status = tokio::task::spawn_blocking(move || {
+        let registry = WorkspaceRegistry::default();
+        terax_lib::modules::git::operations::status(&registry, &repo_root, &ws)
+    })
+    .await
+    .unwrap()
+    .expect("git status on the remote");
+    assert!(
+        status.changed_files.iter().any(|entry| entry.path.ends_with("lib.rs")),
+        "expected the modified file in {:?}",
+        status.changed_files.iter().map(|x| &x.path).collect::<Vec<_>>()
+    );
+});
+
+live!(refuses_a_repo_outside_the_authorized_root, c, e, {
+    use terax_lib::modules::workspace::{WorkspaceEnv, WorkspaceRegistry};
+
+    let state = shared_remote_state();
+    let conn = state.insert_for_test(std::sync::Arc::new(c));
+    state.get(conn).unwrap().authorize_root(&e.root);
+
+    let workspace = WorkspaceEnv::Ssh { conn };
+    let refused = tokio::task::spawn_blocking(move || {
+        let registry = WorkspaceRegistry::default();
+        terax_lib::modules::git::operations::status(&registry, "/etc", &workspace).is_err()
+    })
+    .await
+    .unwrap();
+    assert!(refused, "a repo outside the workspace must be refused");
+});
+

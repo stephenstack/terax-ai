@@ -53,6 +53,30 @@ fn hidden_filter(show_hidden: bool) -> &'static str {
     }
 }
 
+/// `find` evaluates left to right, and `-print` is an action that always
+/// succeeds and prints. A test placed after it is still evaluated, but its
+/// result is discarded, so the hidden filter has to come first or dotfiles are
+/// listed regardless of the setting.
+fn build_list_command(root: &str, depth: &str, show_hidden: bool, limit: usize) -> String {
+    format!(
+        "find {}{} {} -type f{} -print 2>/dev/null | head -n {}",
+        path::quote(root),
+        depth,
+        prune_expr(),
+        hidden_filter(show_hidden),
+        limit + 1,
+    )
+}
+
+fn build_search_command(root: &str, show_hidden: bool) -> String {
+    format!(
+        "find {} {} \\( -type f -o -type d \\){} -print 2>/dev/null | head -n 20000",
+        path::quote(root),
+        prune_expr(),
+        hidden_filter(show_hidden),
+    )
+}
+
 pub async fn list_files(
     conn: &RemoteConn,
     root: &str,
@@ -64,15 +88,9 @@ pub async fn list_files(
         .map(|d| format!(" -maxdepth {d}"))
         .unwrap_or_default();
     // One extra result tells us the listing was cut short.
-    let cmd = format!(
-        "find {}{} {} -type f -print{} 2>/dev/null | head -n {}",
-        path::quote(root),
-        depth,
-        prune_expr(),
-        hidden_filter(show_hidden),
-        limit + 1,
-    );
-    let out = conn.exec(&cmd).await?;
+    let out = conn
+        .exec(&build_list_command(root, &depth, show_hidden, limit))
+        .await?;
     let text = out.stdout_text();
     let mut files: Vec<String> = text.lines().map(str::to_owned).collect();
     let truncated = files.len() > limit;
@@ -95,13 +113,7 @@ pub async fn search(
     }
     // Name matching happens here rather than in a remote regex so the query is
     // never interpreted as a pattern by a program on the far side.
-    let cmd = format!(
-        "find {} {} \\( -type f -o -type d \\) -print{} 2>/dev/null | head -n 20000",
-        path::quote(root),
-        prune_expr(),
-        hidden_filter(show_hidden),
-    );
-    let out = conn.exec(&cmd).await?;
+    let out = conn.exec(&build_search_command(root, show_hidden)).await?;
     let text = out.stdout_text();
 
     let needle = query.to_lowercase();
@@ -314,6 +326,20 @@ mod tests {
         assert!(expr.contains("-name 'node_modules'"));
         assert!(expr.starts_with("\\("));
         assert!(expr.ends_with("-prune -o"));
+    }
+
+    #[test]
+    fn the_hidden_filter_precedes_the_print_action() {
+        // -print always succeeds and prints, so a test placed after it is
+        // evaluated and discarded: dotfiles would be listed anyway.
+        for cmd in [
+            build_list_command("/srv", "", false, 10),
+            build_search_command("/srv", false),
+        ] {
+            let filter = cmd.find("! -path").expect("filter present");
+            let print = cmd.find("-print").expect("print present");
+            assert!(filter < print, "filter must come first in: {cmd}");
+        }
     }
 
     #[test]

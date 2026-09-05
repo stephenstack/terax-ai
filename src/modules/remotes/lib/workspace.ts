@@ -38,7 +38,14 @@ export const useRemoteWorkspaceStore = create<State>((set, get) => ({
 
   open: async (profile) => {
     const existing = get().active;
-    if (existing?.profileId === profile.id) return existing;
+    // Reuse only a connection that is still alive: after a drop the cached
+    // entry would be handed back forever and the host could never be reopened.
+    if (existing?.profileId === profile.id) {
+      const alive = await invoke<boolean>("remote_is_open", {
+        id: existing.conn,
+      }).catch(() => false);
+      if (alive) return existing;
+    }
     if (existing) await get().close();
 
     set({ connecting: true, error: null });
@@ -102,7 +109,9 @@ export const useRemoteWorkspaceStore = create<State>((set, get) => ({
     } catch (e) {
       // Drop any prompt still queued against this attempt.
       usePromptStore.setState((prev) => ({
-        queue: prev.queue.filter((p) => p.sessionId !== conn),
+        queue: prev.queue.filter(
+          (p) => p.scope !== "workspace" || p.sessionId !== conn,
+        ),
       }));
       void invoke("remote_close", { id: conn }).catch(() => {});
       set({ connecting: false, error: String(e), active: null });

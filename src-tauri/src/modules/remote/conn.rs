@@ -135,8 +135,12 @@ impl RemoteConn {
 
         while let Some(msg) = channel.wait().await {
             match msg {
+                // Once the cap is hit nothing more is appended: dropping only
+                // the oversized chunk and taking later ones would splice
+                // non-contiguous bytes into what looks like a valid prefix,
+                // and a caller parsing a diff or a path list cannot tell.
                 ChannelMsg::Data { data } => {
-                    if stdout.len() + data.len() > MAX_EXEC_OUTPUT {
+                    if truncated || stdout.len() + data.len() > MAX_EXEC_OUTPUT {
                         truncated = true;
                     } else {
                         stdout.extend_from_slice(&data);
@@ -144,7 +148,7 @@ impl RemoteConn {
                 }
                 // ext 1 is stderr; anything else is not something we asked for.
                 ChannelMsg::ExtendedData { data, ext: 1 } => {
-                    if stderr.len() + data.len() <= MAX_EXEC_OUTPUT {
+                    if !truncated && stderr.len() + data.len() <= MAX_EXEC_OUTPUT {
                         stderr.extend_from_slice(&data);
                     }
                 }

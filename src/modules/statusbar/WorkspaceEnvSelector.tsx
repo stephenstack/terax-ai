@@ -16,7 +16,8 @@ import { Refresh01Icon, ServerStack03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
 type Props = {
-  onSelect: (env: WorkspaceEnv) => void;
+  /** Resolves false when the switch was refused, e.g. unsaved editor tabs. */
+  onSelect: (env: WorkspaceEnv) => Promise<boolean>;
 };
 
 /**
@@ -70,7 +71,7 @@ function WorkspaceEnvPicker({ onSelect }: Props) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-48">
-        <DropdownMenuItem onSelect={() => onSelect(LOCAL_WORKSPACE)}>
+        <DropdownMenuItem onSelect={() => void onSelect(LOCAL_WORKSPACE)}>
           {localLabel}
         </DropdownMenuItem>
         {remote ? (
@@ -78,7 +79,7 @@ function WorkspaceEnvPicker({ onSelect }: Props) {
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onSelect={() =>
-                onSelect({
+                void onSelect({
                   kind: "ssh",
                   conn: remote.conn,
                   profileId: remote.profileId,
@@ -90,10 +91,14 @@ function WorkspaceEnvPicker({ onSelect }: Props) {
             <DropdownMenuItem
               variant="destructive"
               onSelect={() => {
-                // Leave the remote first so nothing keeps querying a
-                // connection that is about to go away.
-                onSelect(LOCAL_WORKSPACE);
-                void closeRemote();
+                void (async () => {
+                  // Leave the remote first so nothing keeps querying a
+                  // connection that is about to go away. The switch can be
+                  // refused (unsaved editor tabs); disconnecting anyway would
+                  // strand those edits with no way to save them.
+                  if (!(await onSelect(LOCAL_WORKSPACE))) return;
+                  await closeRemote();
+                })();
               }}
             >
               Disconnect remote workspace
@@ -115,7 +120,7 @@ function WorkspaceEnvPicker({ onSelect }: Props) {
           distros.map((distro) => (
             <DropdownMenuItem
               key={distro.name}
-              onSelect={() => onSelect({ kind: "wsl", distro: distro.name })}
+              onSelect={() => void onSelect({ kind: "wsl", distro: distro.name })}
             >
               WSL: {distro.name}
             </DropdownMenuItem>

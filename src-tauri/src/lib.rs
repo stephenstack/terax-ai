@@ -284,6 +284,7 @@ pub fn run() {
             remote::remote_open,
             remote::remote_prompt_respond,
             remote::remote_close,
+            remote::remote_is_open,
             remote::remote_close_all,
             remote::remote_authorize,
             remote::tunnel_open,
