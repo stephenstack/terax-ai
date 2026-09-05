@@ -219,8 +219,18 @@ fn remove_path(path: &Path) -> io::Result<()> {
 
 /// Creates a new empty file. Fails if the file already exists.
 #[tauri::command]
-pub fn fs_create_file(path: String, workspace: Option<WorkspaceEnv>) -> Result<(), String> {
+pub async fn fs_create_file(
+    path: String,
+    workspace: Option<WorkspaceEnv>,
+    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+) -> Result<(), String> {
     let workspace = WorkspaceEnv::from_option(workspace);
+    if let Some(conn) = workspace.remote_conn() {
+        let c = remote.require(conn)?;
+        let p = crate::modules::remote::resolve(&c, &path);
+        c.authorize_mutation(&p)?;
+        return crate::modules::remote::fs::create_file(&c, &p).await;
+    }
     let p = resolve_path(&path, &workspace);
     if p.exists() {
         return Err(format!("already exists: {}", p.display()));
@@ -235,8 +245,18 @@ pub fn fs_create_file(path: String, workspace: Option<WorkspaceEnv>) -> Result<(
 /// Parents are created as needed — matches the common "new folder" UX
 /// where typing "a/b/c" creates the full chain.
 #[tauri::command]
-pub fn fs_create_dir(path: String, workspace: Option<WorkspaceEnv>) -> Result<(), String> {
+pub async fn fs_create_dir(
+    path: String,
+    workspace: Option<WorkspaceEnv>,
+    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+) -> Result<(), String> {
     let workspace = WorkspaceEnv::from_option(workspace);
+    if let Some(conn) = workspace.remote_conn() {
+        let c = remote.require(conn)?;
+        let p = crate::modules::remote::resolve(&c, &path);
+        c.authorize_mutation(&p)?;
+        return crate::modules::remote::fs::create_dir(&c, &p).await;
+    }
     let p = resolve_path(&path, &workspace);
     if p.exists() {
         return Err(format!("already exists: {}", p.display()));
@@ -249,8 +269,21 @@ pub fn fs_create_dir(path: String, workspace: Option<WorkspaceEnv>) -> Result<()
 
 /// Renames (or moves) a path. Refuses to overwrite an existing target.
 #[tauri::command]
-pub fn fs_rename(from: String, to: String, workspace: Option<WorkspaceEnv>) -> Result<(), String> {
+pub async fn fs_rename(
+    from: String,
+    to: String,
+    workspace: Option<WorkspaceEnv>,
+    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+) -> Result<(), String> {
     let workspace = WorkspaceEnv::from_option(workspace);
+    if let Some(conn) = workspace.remote_conn() {
+        let c = remote.require(conn)?;
+        let from_r = crate::modules::remote::resolve(&c, &from);
+        let to_r = crate::modules::remote::resolve(&c, &to);
+        c.authorize_mutation(&from_r)?;
+        c.authorize_mutation(&to_r)?;
+        return crate::modules::remote::fs::rename(&c, &from_r, &to_r).await;
+    }
     let from_p = resolve_path(&from, &workspace);
     let to_p = resolve_path(&to, &workspace);
     if !from_p.exists() {
@@ -343,8 +376,18 @@ fn fs_move_impl(
 /// Deletes a file or directory (recursively for dirs). Callers are
 /// responsible for confirming destructive operations with the user.
 #[tauri::command]
-pub fn fs_delete(path: String, workspace: Option<WorkspaceEnv>) -> Result<(), String> {
+pub async fn fs_delete(
+    path: String,
+    workspace: Option<WorkspaceEnv>,
+    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+) -> Result<(), String> {
     let workspace = WorkspaceEnv::from_option(workspace);
+    if let Some(conn) = workspace.remote_conn() {
+        let c = remote.require(conn)?;
+        let p = crate::modules::remote::resolve(&c, &path);
+        c.authorize_mutation(&p)?;
+        return crate::modules::remote::fs::delete(&c, std::slice::from_ref(&p)).await;
+    }
     let p = resolve_path(&path, &workspace);
     remove_path(&p).map_err(|e| {
         log::warn!("fs_delete({}) failed: {e}", p.display());
@@ -353,20 +396,70 @@ pub fn fs_delete(path: String, workspace: Option<WorkspaceEnv>) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn fs_delete_batch(
+pub async fn fs_delete_batch(
     paths: Vec<String>,
     root: String,
     workspace: Option<WorkspaceEnv>,
     registry: tauri::State<'_, WorkspaceRegistry>,
-) -> FsDeleteBatchResult {
+    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+    // Tauri requires an async command taking references to return a Result.
+    // This one never fails: per-entry outcomes are reported in the counts, and
+    // the caller has no rejection path.
+) -> Result<FsDeleteBatchResult, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
+    if let Some(conn) = workspace.remote_conn() {
+        return Ok(remote_delete_batch(paths, conn, &remote).await);
+    }
     let Ok(root) = resolve_authorized_root(&root, &workspace, &registry) else {
-        return FsDeleteBatchResult {
+        return Ok(FsDeleteBatchResult {
             deleted: Vec::new(),
             failed: paths.len(),
-        };
+        });
     };
-    fs_delete_batch_impl(paths, &root, &workspace)
+    Ok(fs_delete_batch_impl(paths, &root, &workspace))
+}
+
+/// One `rm` for the whole batch: a round trip per entry would make deleting a
+/// selection unusably slow over a link with any latency.
+async fn remote_delete_batch(
+    paths: Vec<String>,
+    conn: u32,
+    remote: &crate::modules::remote::RemoteState,
+) -> FsDeleteBatchResult {
+    let failed_all = |n: usize| FsDeleteBatchResult {
+        deleted: Vec::new(),
+        failed: n,
+    };
+    let Ok(c) = remote.require(conn) else {
+        return failed_all(paths.len());
+    };
+
+    let mut resolved = Vec::with_capacity(paths.len());
+    let mut rejected = 0;
+    for path in &paths {
+        let target = crate::modules::remote::resolve(&c, path);
+        if c.authorize_mutation(&target).is_ok() {
+            resolved.push((path.clone(), target));
+        } else {
+            rejected += 1;
+            log::warn!("fs_delete_batch refused {target} outside the workspace");
+        }
+    }
+    if resolved.is_empty() {
+        return failed_all(paths.len());
+    }
+
+    let targets: Vec<String> = resolved.iter().map(|(_, t)| t.clone()).collect();
+    match crate::modules::remote::fs::delete(&c, &targets).await {
+        Ok(()) => FsDeleteBatchResult {
+            deleted: resolved.into_iter().map(|(original, _)| original).collect(),
+            failed: rejected,
+        },
+        Err(e) => {
+            log::warn!("fs_delete_batch remote failed: {e}");
+            failed_all(paths.len())
+        }
+    }
 }
 
 fn fs_delete_batch_impl(
@@ -408,12 +501,21 @@ fn copy_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Resu
 /// dirs. Sources are absolute OS paths (from a drag-drop); only the destination
 /// is workspace-resolved. Refuses to overwrite existing entries.
 #[tauri::command]
-pub fn fs_copy(
+pub async fn fs_copy(
     sources: Vec<String>,
     dest_dir: String,
     workspace: Option<WorkspaceEnv>,
+    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
 ) -> Result<(), String> {
     let workspace = WorkspaceEnv::from_option(workspace);
+    if let Some(conn) = workspace.remote_conn() {
+        let c = remote.require(conn)?;
+        let dest = crate::modules::remote::resolve(&c, &dest_dir);
+        c.authorize_mutation(&dest)?;
+        // Sources come from a local drag-drop, so this is an upload rather
+        // than a server-side copy.
+        return crate::modules::remote::fs::upload(&c, &sources, &dest).await;
+    }
     let dest = resolve_path(&dest_dir, &workspace);
     for source in &sources {
         let src = std::path::PathBuf::from(source);

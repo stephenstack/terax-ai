@@ -144,7 +144,7 @@ impl SshSession {
     }
 }
 
-struct Handler {
+pub struct Handler {
     host: String,
     port: u16,
     bus: Arc<PromptBus>,
@@ -570,21 +570,17 @@ pub struct SpawnArgs {
     pub bus: Arc<PromptBus>,
 }
 
-/// Connect and hand back a live session. Returns only once the shell channel
-/// is open, so a failure surfaces as a rejected promise rather than a dead pane.
-pub async fn spawn(args: SpawnArgs) -> Result<Arc<SshSession>, String> {
-    let SpawnArgs {
-        target,
-        cols,
-        rows,
-        on_data,
-        on_exit,
-        bus,
-    } = args;
-
-    let resolved = target::resolve_target(&target)?;
+/// Connect, verify the host key, and authenticate.
+///
+/// Shared by the terminal session and the remote-workspace connection so the
+/// security-critical path exists exactly once. The caller decides what to do
+/// with the authenticated handle (a shell channel, SFTP, or an exec).
+pub async fn connect_authenticated(
+    target: &SshTarget,
+    bus: &Arc<PromptBus>,
+) -> Result<(client::Handle<Handler>, ResolvedTarget), String> {
+    let resolved = target::resolve_target(target)?;
     let known_hosts = hostkey::default_known_hosts_path()?;
-    let accepted_once = Arc::new(AtomicBool::new(false));
 
     bus.emit(SshEvent::Phase {
         phase: "connecting",
@@ -595,7 +591,7 @@ pub async fn spawn(args: SpawnArgs) -> Result<Arc<SshSession>, String> {
         port: resolved.port,
         bus: bus.clone(),
         known_hosts,
-        accepted_once,
+        accepted_once: Arc::new(AtomicBool::new(false)),
     };
 
     let config = Arc::new(client_config(&resolved));
@@ -616,7 +612,24 @@ pub async fn spawn(args: SpawnArgs) -> Result<Arc<SshSession>, String> {
     bus.emit(SshEvent::Phase {
         phase: "authenticating",
     });
-    authenticate(&mut handle, &resolved, &bus).await?;
+    authenticate(&mut handle, &resolved, bus).await?;
+
+    Ok((handle, resolved))
+}
+
+/// Connect and hand back a live session. Returns only once the shell channel
+/// is open, so a failure surfaces as a rejected promise rather than a dead pane.
+pub async fn spawn(args: SpawnArgs) -> Result<Arc<SshSession>, String> {
+    let SpawnArgs {
+        target,
+        cols,
+        rows,
+        on_data,
+        on_exit,
+        bus,
+    } = args;
+
+    let (handle, resolved) = connect_authenticated(&target, &bus).await?;
 
     bus.emit(SshEvent::Phase { phase: "opening" });
     let channel = handle

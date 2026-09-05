@@ -8,9 +8,9 @@ use tempfile::NamedTempFile;
 
 use crate::modules::workspace::{resolve_path, WorkspaceEnv};
 
-const MAX_READ_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
+pub const MAX_READ_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
 /// Ceiling for explicit "open anyway"; mirrored as FORCE_READ_LIMIT in useDocument.ts.
-const FORCE_MAX_READ_BYTES: u64 = 50 * 1024 * 1024;
+pub const FORCE_MAX_READ_BYTES: u64 = 50 * 1024 * 1024;
 const BINARY_SNIFF_BYTES: usize = 8 * 1024;
 
 #[derive(Serialize)]
@@ -59,8 +59,14 @@ pub async fn fs_read_file(
     path: String,
     workspace: Option<WorkspaceEnv>,
     force: Option<bool>,
+    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
 ) -> Result<ReadResult, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
+    if let Some(conn) = workspace.remote_conn() {
+        let c = remote.require(conn)?;
+        let file = crate::modules::remote::resolve(&c, &path);
+        return crate::modules::remote::fs::read_file(&c, &file, force.unwrap_or(false)).await;
+    }
     read_file_sync(&resolve_path(&path, &workspace), force.unwrap_or(false))
 }
 
@@ -131,8 +137,15 @@ pub async fn fs_write_file(
     workspace: Option<WorkspaceEnv>,
     source: Option<String>,
     app: tauri::AppHandle,
+    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
 ) -> Result<u64, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
+    if let Some(conn) = workspace.remote_conn() {
+        let c = remote.require(conn)?;
+        let file = crate::modules::remote::resolve(&c, &path);
+        c.authorize_mutation(&file)?;
+        return crate::modules::remote::fs::write_file(&c, &file, &content).await;
+    }
     let target = resolve_path(&path, &workspace);
     let original_permissions = fs::metadata(&target).ok().map(|m| m.permissions());
     write_atomic(&target, content.as_bytes()).map_err(|e| {
@@ -161,16 +174,31 @@ pub async fn fs_write_file(
 pub async fn fs_canonicalize(
     path: String,
     workspace: Option<WorkspaceEnv>,
+    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
 ) -> Result<String, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
+    if let Some(conn) = workspace.remote_conn() {
+        let c = remote.require(conn)?;
+        let p = crate::modules::remote::resolve(&c, &path);
+        return crate::modules::remote::fs::canonicalize(&c, &p).await;
+    }
     let p = resolve_path(&path, &workspace);
     let canon = std::fs::canonicalize(&p).map_err(|e| e.to_string())?;
     Ok(super::to_canon(&canon))
 }
 
 #[tauri::command]
-pub async fn fs_stat(path: String, workspace: Option<WorkspaceEnv>) -> Result<FileStat, String> {
+pub async fn fs_stat(
+    path: String,
+    workspace: Option<WorkspaceEnv>,
+    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
+) -> Result<FileStat, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
+    if let Some(conn) = workspace.remote_conn() {
+        let c = remote.require(conn)?;
+        let p = crate::modules::remote::resolve(&c, &path);
+        return crate::modules::remote::fs::stat(&c, &p).await;
+    }
     let p = resolve_path(&path, &workspace);
     let meta = std::fs::metadata(&p).map_err(|e| e.to_string())?;
     // fs::metadata follows symlinks, so the link check needs symlink_metadata.

@@ -316,6 +316,12 @@ pub enum WorkspaceEnv {
     Wsl {
         distro: String,
     },
+    /// A directory on another machine, reached over the remote connection with
+    /// this id. Unlike WSL there is no host path for it, so anything that
+    /// resolves to a local `PathBuf` must branch before it gets here.
+    Ssh {
+        conn: u32,
+    },
 }
 
 impl WorkspaceEnv {
@@ -325,6 +331,15 @@ impl WorkspaceEnv {
 
     pub fn is_wsl(&self) -> bool {
         matches!(self, Self::Wsl { .. })
+    }
+
+    /// The remote connection backing this workspace, if any. Every command
+    /// that touches the filesystem checks this first.
+    pub fn remote_conn(&self) -> Option<u32> {
+        match self {
+            Self::Ssh { conn } => Some(*conn),
+            _ => None,
+        }
     }
 }
 
@@ -340,12 +355,26 @@ pub fn resolve_path(path: &str, workspace: &WorkspaceEnv) -> PathBuf {
     match workspace {
         WorkspaceEnv::Local => PathBuf::from(path),
         WorkspaceEnv::Wsl { distro } => wsl_path_to_host(distro, path),
+        WorkspaceEnv::Ssh { .. } => unresolvable_remote(path),
     }
 }
 
 #[cfg(not(windows))]
-pub fn resolve_path(path: &str, _workspace: &WorkspaceEnv) -> PathBuf {
-    PathBuf::from(path)
+pub fn resolve_path(path: &str, workspace: &WorkspaceEnv) -> PathBuf {
+    match workspace {
+        WorkspaceEnv::Ssh { .. } => unresolvable_remote(path),
+        _ => PathBuf::from(path),
+    }
+}
+
+/// A remote workspace has no local path. Every filesystem command is supposed
+/// to branch on `remote_conn()` before reaching here, so this is a bug in the
+/// caller. Return something that cannot resolve rather than a plausible local
+/// path: on Windows a remote `/etc/hosts` would otherwise become `C:\etc\hosts`
+/// and the operation would silently hit the wrong machine.
+fn unresolvable_remote(path: &str) -> PathBuf {
+    log::error!("resolve_path called for a remote workspace path {path:?}");
+    PathBuf::new()
 }
 
 /// True for WSL distro names safe to splice into a UNC path. Real WSL distros

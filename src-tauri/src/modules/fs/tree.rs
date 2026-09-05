@@ -131,13 +131,19 @@ fn natural_cmp(a: &str, b: &str) -> Ordering {
 /// opts into the per-entry `gitignored` flag; off by default so non-explorer
 /// callers pay nothing.
 #[tauri::command]
-pub fn fs_read_dir(
+pub async fn fs_read_dir(
     path: String,
     show_hidden: bool,
     git_decorations: Option<bool>,
     workspace: Option<WorkspaceEnv>,
+    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
 ) -> Result<Vec<DirEntry>, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
+    if let Some(conn) = workspace.remote_conn() {
+        let c = remote.require(conn)?;
+        let dir = crate::modules::remote::resolve(&c, &path);
+        return crate::modules::remote::fs::read_dir(&c, &dir, show_hidden).await;
+    }
     let root = resolve_path(&path, &workspace);
     let read = std::fs::read_dir(&root).map_err(|e| {
         log::debug!("fs_read_dir({}) failed: {e}", root.display());
@@ -218,12 +224,18 @@ pub fn fs_read_dir(
 /// Symlinks to directories are included (matches shell `cd` semantics).
 /// Hidden entries are filtered by dot-prefix only.
 #[tauri::command]
-pub fn list_subdirs(
+pub async fn list_subdirs(
     path: String,
     show_hidden: bool,
     workspace: Option<WorkspaceEnv>,
+    remote: tauri::State<'_, crate::modules::remote::RemoteState>,
 ) -> Result<Vec<String>, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
+    if let Some(conn) = workspace.remote_conn() {
+        let c = remote.require(conn)?;
+        let dir = crate::modules::remote::resolve(&c, &path);
+        return crate::modules::remote::fs::list_subdirs(&c, &dir, show_hidden).await;
+    }
     let root = resolve_path(&path, &workspace);
     let read = std::fs::read_dir(&root).map_err(|e| {
         log::debug!("list_subdirs({}) read_dir failed: {e}", root.display());

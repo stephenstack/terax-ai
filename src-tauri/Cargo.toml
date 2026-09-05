@@ -71,6 +71,7 @@ russh = { version = "0.63", default-features = false, features = [
 	"ring",
 	"flate2",
 ] }
+russh-sftp = "2.4"
 tempfile = "3"
 notify = "8.2.0"
 which = "8.0.4"

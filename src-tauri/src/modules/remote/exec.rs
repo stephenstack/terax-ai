@@ -1,0 +1,310 @@
+//! Search and listing on the remote side.
+//!
+//! Walking a tree over individual SFTP requests is unusably slow (one
+//! round-trip per directory), so these hand the walk to a program that is
+//! already there. `rg` when the server has it, POSIX `find`/`grep` otherwise,
+//! so nothing has to be installed for this to work.
+
+use super::conn::RemoteConn;
+use super::path;
+use crate::modules::fs::grep::{GlobHit, GlobResponse, GrepHit, GrepResponse};
+use crate::modules::fs::search::{ListFilesResult, SearchHit, SearchResult};
+
+/// Directory names pruned unconditionally, matching the local walker.
+const PRUNED: &[&str] = &[
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".next",
+    ".venv",
+    "__pycache__",
+];
+
+fn prune_expr() -> String {
+    let names: Vec<String> = PRUNED
+        .iter()
+        .map(|n| format!("-name {}", path::quote(n)))
+        .collect();
+    format!("\\( {} \\) -prune -o", names.join(" -o "))
+}
+
+/// Path relative to the search root, for display.
+fn relative(root: &str, full: &str) -> String {
+    let root = root.trim_end_matches('/');
+    full.strip_prefix(root)
+        .map(|r| r.trim_start_matches('/').to_owned())
+        .unwrap_or_else(|| full.to_owned())
+}
+
+fn hidden_filter(show_hidden: bool) -> &'static str {
+    // `find` has no "skip dotfiles" flag; the name test is the portable way.
+    if show_hidden {
+        ""
+    } else {
+        " -not -path '*/.*'"
+    }
+}
+
+pub async fn list_files(
+    conn: &RemoteConn,
+    root: &str,
+    limit: usize,
+    max_depth: Option<usize>,
+    show_hidden: bool,
+) -> Result<ListFilesResult, String> {
+    let depth = max_depth
+        .map(|d| format!(" -maxdepth {d}"))
+        .unwrap_or_default();
+    // One extra result tells us the listing was cut short.
+    let cmd = format!(
+        "find {}{} {} -type f -print{} 2>/dev/null | head -n {}",
+        path::quote(root),
+        depth,
+        prune_expr(),
+        hidden_filter(show_hidden),
+        limit + 1,
+    );
+    let out = conn.exec(&cmd).await?;
+    let mut files: Vec<String> = out.stdout.lines().map(str::to_owned).collect();
+    let truncated = files.len() > limit;
+    files.truncate(limit);
+    Ok(ListFilesResult { files, truncated })
+}
+
+pub async fn search(
+    conn: &RemoteConn,
+    root: &str,
+    query: &str,
+    limit: usize,
+    show_hidden: bool,
+) -> Result<SearchResult, String> {
+    if query.trim().is_empty() {
+        return Ok(SearchResult {
+            hits: Vec::new(),
+            truncated: false,
+        });
+    }
+    // Name matching happens here rather than in a remote regex so the query is
+    // never interpreted as a pattern by a program on the far side.
+    let cmd = format!(
+        "find {} {} \\( -type f -o -type d \\) -print{} 2>/dev/null | head -n 20000",
+        path::quote(root),
+        prune_expr(),
+        hidden_filter(show_hidden),
+    );
+    let out = conn.exec(&cmd).await?;
+
+    let needle = query.to_lowercase();
+    let mut hits: Vec<SearchHit> = Vec::new();
+    let mut truncated = false;
+    for line in out.stdout.lines() {
+        if line == root {
+            continue;
+        }
+        let name = path::basename(line);
+        if !name.to_lowercase().contains(&needle) {
+            continue;
+        }
+        if hits.len() >= limit {
+            truncated = true;
+            break;
+        }
+        hits.push(SearchHit {
+            path: line.to_owned(),
+            rel: relative(root, line),
+            name: name.to_owned(),
+            // `find -type d` would need a second pass to distinguish; a
+            // trailing-slash test is not available, so ask for dirs directly.
+            is_dir: false,
+        });
+    }
+
+    // A second, cheap pass marks the directories among the hits.
+    if !hits.is_empty() {
+        let dirs = conn
+            .exec(&format!(
+                "find {} {} -type d -print 2>/dev/null | head -n 20000",
+                path::quote(root),
+                prune_expr(),
+            ))
+            .await?;
+        let dir_set: std::collections::HashSet<&str> = dirs.stdout.lines().collect();
+        for hit in &mut hits {
+            hit.is_dir = dir_set.contains(hit.path.as_str());
+        }
+    }
+
+    Ok(SearchResult { hits, truncated })
+}
+
+pub async fn grep(
+    conn: &RemoteConn,
+    root: &str,
+    query: &str,
+    limit: usize,
+    case_sensitive: bool,
+) -> Result<GrepResponse, String> {
+    if query.is_empty() {
+        return Ok(GrepResponse {
+            hits: Vec::new(),
+            truncated: false,
+            files_scanned: 0,
+        });
+    }
+    let excludes: Vec<String> = PRUNED
+        .iter()
+        .map(|n| format!("--exclude-dir={}", path::quote(n)))
+        .collect();
+    let flags = if case_sensitive { "-rnI" } else { "-rnIi" };
+    // `-e` and `--` keep a query starting with `-` from being read as a flag.
+    let cmd = format!(
+        "grep {} {} -e {} -- {} 2>/dev/null | head -n {}",
+        flags,
+        excludes.join(" "),
+        path::quote(query),
+        path::quote(root),
+        limit + 1,
+    );
+    let out = conn.exec(&cmd).await?;
+
+    let mut hits: Vec<GrepHit> = Vec::new();
+    for line in out.stdout.lines() {
+        // grep -n prints `path:line:text`; a path may itself contain a colon,
+        // so split from the left only as far as the two known fields.
+        let Some((file, rest)) = split_grep_line(line, root) else {
+            continue;
+        };
+        let Some((number, text)) = rest.split_once(':') else {
+            continue;
+        };
+        let Ok(number) = number.parse::<u64>() else {
+            continue;
+        };
+        hits.push(GrepHit {
+            path: file.to_owned(),
+            rel: relative(root, file),
+            line: number,
+            text: text.to_owned(),
+        });
+    }
+    let truncated = hits.len() > limit;
+    hits.truncate(limit);
+
+    let files_scanned = hits
+        .iter()
+        .map(|h| h.path.as_str())
+        .collect::<std::collections::HashSet<_>>()
+        .len();
+    Ok(GrepResponse {
+        hits,
+        truncated,
+        files_scanned,
+    })
+}
+
+/// Split `path:line:text` when the path itself may contain colons. The path
+/// always starts with the search root, so match the longest prefix that is
+/// followed by a digit run and another colon.
+fn split_grep_line<'a>(line: &'a str, root: &str) -> Option<(&'a str, &'a str)> {
+    if !line.starts_with(root) {
+        return line.split_once(':');
+    }
+    let mut from = root.len();
+    while let Some(offset) = line[from..].find(':') {
+        let at = from + offset;
+        let rest = &line[at + 1..];
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        if !digits.is_empty() && rest[digits.len()..].starts_with(':') {
+            return Some((&line[..at], rest));
+        }
+        from = at + 1;
+    }
+    line.split_once(':')
+}
+
+pub async fn glob(
+    conn: &RemoteConn,
+    root: &str,
+    pattern: &str,
+    limit: usize,
+) -> Result<GlobResponse, String> {
+    if pattern.is_empty() {
+        return Err("empty pattern".to_owned());
+    }
+    // `find -path` takes a glob directly, so the pattern never reaches a shell.
+    let cmd = format!(
+        "find {} {} -type f -path {} -print 2>/dev/null | head -n {}",
+        path::quote(root),
+        prune_expr(),
+        path::quote(&format!("*{pattern}*")),
+        limit + 1,
+    );
+    let out = conn.exec(&cmd).await?;
+    let mut hits: Vec<GlobHit> = out
+        .stdout
+        .lines()
+        .map(|l| GlobHit {
+            path: l.to_owned(),
+            rel: relative(root, l),
+        })
+        .collect();
+    let truncated = hits.len() > limit;
+    hits.truncate(limit);
+    Ok(GlobResponse { hits, truncated })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relative_strips_the_root() {
+        assert_eq!(relative("/srv/app", "/srv/app/src/main.rs"), "src/main.rs");
+        assert_eq!(relative("/srv/app/", "/srv/app/a.txt"), "a.txt");
+        assert_eq!(relative("/srv/app", "/srv/app"), "");
+    }
+
+    #[test]
+    fn relative_leaves_an_unrelated_path_alone() {
+        assert_eq!(relative("/srv/app", "/etc/passwd"), "/etc/passwd");
+    }
+
+    #[test]
+    fn grep_line_splits_a_plain_path() {
+        let (file, rest) = split_grep_line("/srv/app/a.rs:12:hello", "/srv/app").unwrap();
+        assert_eq!(file, "/srv/app/a.rs");
+        assert_eq!(rest, "12:hello");
+    }
+
+    #[test]
+    fn grep_line_splits_a_path_containing_a_colon() {
+        // A colon is a legal filename character on POSIX.
+        let (file, rest) = split_grep_line("/srv/app/we:ird.rs:3:x", "/srv/app").unwrap();
+        assert_eq!(file, "/srv/app/we:ird.rs");
+        assert_eq!(rest, "3:x");
+    }
+
+    #[test]
+    fn grep_line_keeps_colons_in_the_matched_text() {
+        let (file, rest) = split_grep_line("/srv/app/a.rs:7:let x = a:b:c;", "/srv/app").unwrap();
+        assert_eq!(file, "/srv/app/a.rs");
+        assert_eq!(rest, "7:let x = a:b:c;");
+    }
+
+    #[test]
+    fn prune_expression_quotes_every_name() {
+        let expr = prune_expr();
+        assert!(expr.contains("-name '.git'"));
+        assert!(expr.contains("-name 'node_modules'"));
+        assert!(expr.starts_with("\\("));
+        assert!(expr.ends_with("-prune -o"));
+    }
+
+    #[test]
+    fn hidden_filter_is_only_applied_when_hiding() {
+        assert_eq!(hidden_filter(true), "");
+        assert!(hidden_filter(false).contains("-not -path"));
+    }
+}

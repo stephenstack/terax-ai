@@ -3,7 +3,8 @@ pub mod modules;
 #[cfg(target_os = "macos")]
 use modules::app_menu;
 use modules::{
-    agent, control, fs, git, history, lsp, net, pty, secrets, shell, ssh, vibrancy, workspace,
+    agent, control, fs, git, history, lsp, net, pty, remote, secrets, shell, ssh, vibrancy,
+    workspace,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -234,6 +235,7 @@ pub fn run() {
         .manage(control_state)
         .manage(shell::ShellState::default())
         .manage(ssh::SshState::default())
+        .manage(remote::RemoteState::default())
         .manage(secrets::SecretsState::default())
         .manage(fs::watch::FsWatchState::default())
         .manage(history::HistoryState::default())
@@ -271,6 +273,12 @@ pub fn run() {
             ssh::ssh_discover_keys,
             ssh::ssh_agent_identities,
             ssh::ssh_read_config,
+            remote::remote_reserve,
+            remote::remote_open,
+            remote::remote_prompt_respond,
+            remote::remote_close,
+            remote::remote_close_all,
+            remote::remote_authorize,
             fs::tree::list_subdirs,
             fs::tree::fs_read_dir,
             fs::file::fs_read_file,
