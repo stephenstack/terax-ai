@@ -5,6 +5,7 @@
 //! that connecting is interactive (host keys, passwords), so an extra event
 //! channel carries prompts the UI has to answer.
 
+pub mod agent;
 pub mod config;
 mod hostkey;
 pub mod session;
@@ -16,6 +17,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use tauri::ipc::{Channel, Response};
 
+use agent as session_agent;
 use session::{PromptBus, SessionCmd, SshEvent, SshSession};
 use target::SshTarget;
 
@@ -298,30 +300,11 @@ pub fn ssh_discover_keys() -> Result<Vec<DiscoveredKey>, String> {
     Ok(keys)
 }
 
-/// Whether an agent is reachable and how many identities it holds, so the UI
-/// can grey out the agent option honestly instead of failing at connect time.
+/// Which identities a reachable agent holds, so the UI can be honest about
+/// the agent option instead of failing at connect time.
 #[tauri::command]
 pub async fn ssh_agent_identities() -> Result<Vec<String>, String> {
-    let mut agent = russh::keys::agent::client::AgentClient::connect_env()
-        .await
-        .map_err(|e| format!("no ssh-agent: {e}"))?;
-    let identities = agent
-        .request_identities()
-        .await
-        .map_err(|e| format!("agent error: {e}"))?;
-    Ok(identities
-        .into_iter()
-        .filter_map(|i| match i {
-            russh::keys::agent::AgentIdentity::PublicKey { key, comment } => {
-                Some(if comment.trim().is_empty() {
-                    key.fingerprint(Default::default()).to_string()
-                } else {
-                    comment
-                })
-            }
-            _ => None,
-        })
-        .collect())
+    session_agent::identities().await
 }
 
 /// The name `ssh` would use when a config entry omits `User`.

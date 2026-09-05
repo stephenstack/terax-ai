@@ -296,48 +296,6 @@ fn expand_tilde(path: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(path)
 }
 
-async fn try_agent(handle: &mut client::Handle<Handler>, user: &str) -> Result<bool, String> {
-    let mut agent = match russh::keys::agent::client::AgentClient::connect_env().await {
-        Ok(agent) => agent,
-        Err(e) => {
-            log::debug!("ssh agent unavailable: {e}");
-            return Ok(false);
-        }
-    };
-    let identities = agent
-        .request_identities()
-        .await
-        .map_err(|e| format!("agent refused to list identities: {e}"))?;
-    if identities.is_empty() {
-        log::debug!("ssh agent holds no identities");
-        return Ok(false);
-    }
-    for identity in identities {
-        let russh::keys::agent::AgentIdentity::PublicKey { key, .. } = identity else {
-            // Certificate identities need CA trust we do not configure yet.
-            continue;
-        };
-        let hash_alg = handle
-            .best_supported_rsa_hash()
-            .await
-            .ok()
-            .flatten()
-            .flatten();
-        match handle
-            .authenticate_publickey_with(user, key, hash_alg, &mut agent)
-            .await
-        {
-            Ok(AuthResult::Success) => return Ok(true),
-            Ok(_) => continue,
-            Err(e) => {
-                log::debug!("agent identity rejected: {e:?}");
-                continue;
-            }
-        }
-    }
-    Ok(false)
-}
-
 async fn try_keyboard_interactive(
     handle: &mut client::Handle<Handler>,
     user: &str,
@@ -400,7 +358,7 @@ async fn authenticate(
     let mut last_error: Option<String> = None;
     for method in &resolved.methods {
         let outcome = match method {
-            AuthMethod::Agent => try_agent(handle, user).await,
+            AuthMethod::Agent => super::agent::authenticate(handle, user).await,
             AuthMethod::KeyFile { path, passphrase } => {
                 match load_key(path, passphrase.as_deref(), bus).await {
                     Ok(key) => {
