@@ -216,3 +216,4 @@ Long-form contributor guides live under `docs/`. These guides elaborate on `TERA
 - `docs/architecture/ai-subsystem.md` - AI stack, sessions, tools, adding a provider
 - `docs/architecture/terminal-renderer-pool.md` - renderer pool and DormantRing invariants
 - `docs/contributing/testing.md` - testing contract and core-subsystem invariants
+- `docs/ssh-remote.md` - SSH hosts, host keys, jump hosts, port forwards, remote workspaces
