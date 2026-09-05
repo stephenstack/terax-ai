@@ -1,9 +1,14 @@
 //! Search and listing on the remote side.
 //!
 //! Walking a tree over individual SFTP requests is unusably slow (one
-//! round-trip per directory), so these hand the walk to a program that is
-//! already there. `rg` when the server has it, POSIX `find`/`grep` otherwise,
-//! so nothing has to be installed for this to work.
+//! round-trip per directory), so these hand the walk to `find` and `grep`,
+//! which are already there.
+//!
+//! Strictly POSIX: a minimal server (BusyBox, an Alpine container) has neither
+//! GNU `grep --exclude-dir` nor `-I`, and silently returns nothing when handed
+//! them. Pruning therefore happens in `find`, and `-exec ... {} +` is used
+//! instead of `xargs`, which needs a non-portable `-r` to avoid running on an
+//! empty list.
 
 use super::conn::RemoteConn;
 use super::path;
@@ -39,11 +44,12 @@ fn relative(root: &str, full: &str) -> String {
 }
 
 fn hidden_filter(show_hidden: bool) -> &'static str {
-    // `find` has no "skip dotfiles" flag; the name test is the portable way.
+    // `find` has no "skip dotfiles" flag; a negated path test is the portable
+    // way, and `!` is POSIX where `-not` is a GNU spelling.
     if show_hidden {
         ""
     } else {
-        " -not -path '*/.*'"
+        " ! -path '*/.*'"
     }
 }
 
@@ -156,18 +162,17 @@ pub async fn grep(
             files_scanned: 0,
         });
     }
-    let excludes: Vec<String> = PRUNED
-        .iter()
-        .map(|n| format!("--exclude-dir={}", path::quote(n)))
-        .collect();
-    let flags = if case_sensitive { "-rnI" } else { "-rnIi" };
-    // `-e` and `--` keep a query starting with `-` from being read as a flag.
+    let flags = if case_sensitive { "-n" } else { "-ni" };
+    // `/dev/null` as an extra operand forces the filename prefix even when the
+    // batch holds a single file, which is the portable equivalent of `-H`.
+    // `-e` keeps a query starting with `-` from being read as a flag.
     let cmd = format!(
-        "grep {} {} -e {} -- {} 2>/dev/null | head -n {}",
-        flags,
-        excludes.join(" "),
-        path::quote(query),
+        "find {} {} -type f{} -exec grep {} -e {} /dev/null {{}} + 2>/dev/null | head -n {}",
         path::quote(root),
+        prune_expr(),
+        hidden_filter(true),
+        flags,
+        path::quote(query),
         limit + 1,
     );
     let out = conn.exec(&cmd).await?;
@@ -175,6 +180,11 @@ pub async fn grep(
 
     let mut hits: Vec<GrepHit> = Vec::new();
     for line in text.lines() {
+        // Without GNU `-I` a binary file can still match; its line carries NUL
+        // or control bytes, which the UI has no way to render.
+        if line.chars().any(|c| c == '\0') {
+            continue;
+        }
         // grep -n prints `path:line:text`; a path may itself contain a colon,
         // so split from the left only as far as the two known fields.
         let Some((file, rest)) = split_grep_line(line, root) else {
@@ -309,6 +319,6 @@ mod tests {
     #[test]
     fn hidden_filter_is_only_applied_when_hiding() {
         assert_eq!(hidden_filter(true), "");
-        assert!(hidden_filter(false).contains("-not -path"));
+        assert!(hidden_filter(false).contains("! -path"), "POSIX negation, not the GNU -not spelling");
     }
 }

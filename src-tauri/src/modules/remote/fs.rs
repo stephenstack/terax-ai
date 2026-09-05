@@ -146,9 +146,7 @@ pub async fn read_file(
 /// write.
 pub async fn write_file(conn: &RemoteConn, file: &str, content: &str) -> Result<u64, String> {
     let sftp = conn.sftp().await;
-    sftp.write(file.to_owned(), content.as_bytes())
-        .await
-        .map_err(|e| format!("could not write {file}: {e}"))?;
+    write_bytes(&sftp, file, content.as_bytes()).await?;
     let meta = sftp
         .metadata(file.to_owned())
         .await
@@ -304,14 +302,40 @@ async fn upload_entry(
     }
     let bytes = std::fs::read(src).map_err(|e| format!("could not read {src:?}: {e}"))?;
     let sftp = conn.sftp().await;
-    sftp.write(target.to_owned(), &bytes)
-        .await
-        .map_err(|e| format!("could not upload {target}: {e}"))
+    write_bytes(&sftp, target, &bytes).await
 }
 
 /// A drag-and-drop upload is buffered in memory, so cap it well below anything
 /// that would strain the process.
 const MAX_UPLOAD_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Write a whole file, creating it if absent and truncating if present.
+///
+/// `SftpSession::write` opens with `WRITE` alone: a new file fails outright,
+/// and an existing one is overwritten in place without truncating, so saving
+/// a shortened file would leave the old tail behind.
+async fn write_bytes(
+    sftp: &russh_sftp::client::SftpSession,
+    file: &str,
+    bytes: &[u8],
+) -> Result<(), String> {
+    use tokio::io::AsyncWriteExt;
+    let mut handle = sftp
+        .open_with_flags(
+            file.to_owned(),
+            OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE,
+        )
+        .await
+        .map_err(|e| format!("could not open {file} for writing: {e}"))?;
+    handle
+        .write_all(bytes)
+        .await
+        .map_err(|e| format!("could not write {file}: {e}"))?;
+    handle
+        .shutdown()
+        .await
+        .map_err(|e| format!("could not flush {file}: {e}"))
+}
 
 pub async fn copy(conn: &RemoteConn, from: &str, to: &str) -> Result<(), String> {
     let out = conn

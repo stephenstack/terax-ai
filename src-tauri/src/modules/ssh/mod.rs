@@ -7,8 +7,8 @@
 
 pub mod config;
 mod hostkey;
-pub(crate) mod session;
-pub(crate) mod target;
+pub mod session;
+pub mod target;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};

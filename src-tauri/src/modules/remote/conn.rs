@@ -149,7 +149,9 @@ impl RemoteConn {
                     }
                 }
                 ChannelMsg::ExitStatus { exit_status } => code = exit_status as i32,
-                ChannelMsg::Eof | ChannelMsg::Close => break,
+                // Not Eof: the server sends exit-status after it, so breaking
+                // there would report success for every failing command.
+                ChannelMsg::Close => break,
                 _ => {}
             }
         }
