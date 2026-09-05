@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -27,11 +28,13 @@ import {
   useTerminalFont,
   type TerminalAppearance,
 } from "@/modules/terminal";
+import { parseJumpSpec } from "./lib/jumps";
 import { agentIdentities, discoverKeys } from "./lib/ssh-bridge";
 import { useRemotesStore } from "./lib/store";
 import type {
   DiscoveredKey,
   RemoteAuthMethod,
+  RemoteForward,
   RemoteGroup,
   RemoteProfile,
 } from "./lib/types";
@@ -80,7 +83,15 @@ export function HostDialog({ profile, groups, onClose }: Props) {
   const patch = (next: Partial<RemoteProfile>) =>
     setDraft((d) => ({ ...d, ...next }));
 
-  const valid = draft.host.trim().length > 0 && draft.user.trim().length > 0;
+  const invalidJumps = useMemo(
+    () => (draft.jumps ?? []).filter((j) => parseJumpSpec(j) === null),
+    [draft.jumps],
+  );
+
+  const valid =
+    draft.host.trim().length > 0 &&
+    draft.user.trim().length > 0 &&
+    invalidJumps.length === 0;
 
   const submit = () => {
     if (!valid) return;
@@ -114,6 +125,9 @@ export function HostDialog({ profile, groups, onClose }: Props) {
             </TabsTrigger>
             <TabsTrigger value="session" className="flex-1">
               Session
+            </TabsTrigger>
+            <TabsTrigger value="tunnels" className="flex-1">
+              Tunnels
             </TabsTrigger>
             <TabsTrigger value="appearance" className="flex-1">
               Appearance
@@ -159,6 +173,31 @@ export function HostDialog({ profile, groups, onClose }: Props) {
                   spellCheck={false}
                   autoComplete="off"
                 />
+              </Field>
+              <Field
+                label="Jump hosts"
+                hint="Bastions to tunnel through, nearest first, one per line as [user@]host[:port]. Equivalent to ProxyJump."
+              >
+                <Textarea
+                  value={(draft.jumps ?? []).join("\n")}
+                  onChange={(e) =>
+                    patch({
+                      jumps: e.target.value
+                        .split("\n")
+                        .map((l) => l.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  placeholder="ops@bastion.example:22"
+                  spellCheck={false}
+                  rows={2}
+                  className="text-[11.5px]"
+                />
+                {invalidJumps.length > 0 ? (
+                  <p className="text-[10.5px] leading-snug text-destructive">
+                    Cannot parse: {invalidJumps.join(", ")}
+                  </p>
+                ) : null}
               </Field>
               <Field label="Group">
                 <Select
@@ -282,6 +321,19 @@ export function HostDialog({ profile, groups, onClose }: Props) {
               <EnvEditor
                 env={draft.env}
                 onChange={(env) => patch({ env })}
+              />
+            </TabsContent>
+
+            <TabsContent value="tunnels" className="space-y-3 pt-3">
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Local forwards, like <code>ssh -L</code>. The remote host is
+                resolved on the server, so <code>localhost</code> means the
+                server's own loopback. Nothing starts automatically: you start
+                a forward from the Remotes panel.
+              </p>
+              <ForwardEditor
+                forwards={draft.forwards ?? []}
+                onChange={(forwards) => patch({ forwards })}
               />
             </TabsContent>
 
@@ -742,6 +794,125 @@ function AppearanceEditor({
           Blink the cursor
         </Label>
       </div>
+    </div>
+  );
+}
+
+
+function ForwardEditor({
+  forwards,
+  onChange,
+}: {
+  forwards: RemoteForward[];
+  onChange: (forwards: RemoteForward[]) => void;
+}) {
+  const update = (index: number, next: Partial<RemoteForward>) =>
+    onChange(forwards.map((f, i) => (i === index ? { ...f, ...next } : f)));
+
+  return (
+    <div className="space-y-2">
+      {forwards.length === 0 ? (
+        <p className="rounded-md border border-dashed border-border/60 px-3 py-3 text-[11px] text-muted-foreground">
+          No forwards configured.
+        </p>
+      ) : null}
+
+      {forwards.map((forward, index) => (
+        <div
+          key={forward.id}
+          className="space-y-2 rounded-md border border-border/60 bg-foreground/[0.03] p-2"
+        >
+          <div className="flex items-center gap-1.5">
+            <Input
+              value={forward.label ?? ""}
+              onChange={(e) =>
+                update(index, { label: e.target.value || undefined })
+              }
+              placeholder="Label (optional)"
+              spellCheck={false}
+              className="h-7 min-w-0 flex-1 text-[11px]"
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Remove forward"
+              className="size-6 text-muted-foreground hover:text-destructive"
+              onClick={() => onChange(forwards.filter((_, i) => i !== index))}
+            >
+              <HugeiconsIcon icon={Delete02Icon} size={12} />
+            </Button>
+          </div>
+          <div className="grid grid-cols-[6rem_1fr_5rem] items-center gap-1.5">
+            <Input
+              type="number"
+              min={0}
+              max={65535}
+              value={forward.localPort === 0 ? "" : forward.localPort}
+              onChange={(e) =>
+                update(index, { localPort: parsePort(e.target.value) ?? 0 })
+              }
+              placeholder="auto"
+              title="Local port; leave empty to let the OS choose"
+              className="h-7 text-[11px]"
+            />
+            <Input
+              value={forward.remoteHost}
+              onChange={(e) => update(index, { remoteHost: e.target.value })}
+              placeholder="localhost"
+              spellCheck={false}
+              title="Resolved on the remote"
+              className="h-7 min-w-0 text-[11px]"
+            />
+            <Input
+              type="number"
+              min={1}
+              max={65535}
+              value={forward.remotePort || ""}
+              onChange={(e) =>
+                update(index, { remotePort: parsePort(e.target.value) ?? 0 })
+              }
+              placeholder="port"
+              className="h-7 text-[11px]"
+            />
+          </div>
+          <Input
+            value={forward.bindAddress ?? ""}
+            onChange={(e) =>
+              update(index, { bindAddress: e.target.value || undefined })
+            }
+            placeholder="127.0.0.1"
+            spellCheck={false}
+            title="Local bind address"
+            className="h-7 text-[11px]"
+          />
+        </div>
+      ))}
+
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="h-7 text-[11px]"
+        onClick={() =>
+          onChange([
+            ...forwards,
+            {
+              id: crypto.randomUUID(),
+              localPort: 0,
+              remoteHost: "localhost",
+              remotePort: 0,
+            },
+          ])
+        }
+      >
+        <HugeiconsIcon icon={PlusSignIcon} size={11} />
+        Add forward
+      </Button>
+      <p className="text-[10.5px] leading-snug text-muted-foreground/80">
+        The bind address defaults to 127.0.0.1. Any other value exposes the
+        remote service to your whole network.
+      </p>
     </div>
   );
 }

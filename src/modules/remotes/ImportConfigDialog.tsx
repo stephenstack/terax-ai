@@ -41,6 +41,11 @@ function toProfile(
     connectTimeoutSecs: host.connect_timeout ?? undefined,
     keepaliveSecs: host.server_alive_interval ?? undefined,
     compression: host.compression ?? undefined,
+    // ProxyJump takes a comma-separated chain, nearest bastion first.
+    jumps: (host.proxy_jump ?? "")
+      .split(",")
+      .map((j) => j.trim())
+      .filter(Boolean),
   };
 }
 
@@ -150,6 +155,7 @@ export function ImportConfigDialog({ onClose }: Props) {
                     {host.identity_files.length > 0
                       ? ` · ${host.identity_files.length} key${host.identity_files.length > 1 ? "s" : ""}`
                       : ""}
+                    {host.proxy_jump ? ` · via ${host.proxy_jump}` : ""}
                   </span>
                 </Label>
               </div>

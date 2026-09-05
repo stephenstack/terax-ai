@@ -1531,6 +1531,7 @@ export default function App() {
                           onConnect={connectToRemote}
                           onOpenWorkspace={openRemoteWorkspace}
                           activeWorkspaceId={activeRemoteWorkspace?.profileId ?? null}
+                          activeWorkspaceConn={activeRemoteWorkspace?.conn ?? null}
                         />
                       ) : sidebarView === "explorer" ? (
                         <FileExplorer

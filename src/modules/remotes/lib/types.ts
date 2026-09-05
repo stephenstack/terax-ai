@@ -19,6 +19,29 @@ export type RemoteAuthMethod =
  */
 type RemoteAppearance = TerminalAppearanceOverride;
 
+/** A local forward, in `ssh -L` terms. */
+export type RemoteForward = {
+  id: string;
+  /** 0 lets the OS pick, which is reported back once bound. */
+  localPort: number;
+  /** Resolved on the remote, so `localhost` means the remote's loopback. */
+  remoteHost: string;
+  remotePort: number;
+  /** Defaults to 127.0.0.1; anything else exposes the remote service. */
+  bindAddress?: string;
+  label?: string;
+};
+
+/** A forward that is currently listening. */
+export type ActiveForward = {
+  id: number;
+  conn: number;
+  bindAddress: string;
+  localPort: number;
+  remoteHost: string;
+  remotePort: number;
+};
+
 export type RemoteProfile = {
   id: string;
   name: string;
@@ -38,6 +61,10 @@ export type RemoteProfile = {
   connectTimeoutSecs?: number;
   compression?: boolean;
   env: Array<[string, string]>;
+  /** Bastions to tunnel through, nearest first, as `[user@]host[:port]`. */
+  jumps: string[];
+  /** Port forwards offered for this host; none are started automatically. */
+  forwards: RemoteForward[];
   appearance: RemoteAppearance;
   /** Accent used by the panel and tab, matching the spaces colour vocabulary. */
   color?: string;
@@ -72,6 +99,8 @@ export type SshTarget = {
   connectTimeoutSecs?: number;
   compression?: boolean;
   env: Array<[string, string]>;
+  /** Bastions to tunnel through, nearest first. */
+  jumps: SshTarget[];
 };
 
 type HostKeyStatus = "trusted" | "unknown" | "changed";

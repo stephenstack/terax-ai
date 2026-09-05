@@ -25,6 +25,7 @@ await Promise.all([
   invoke("pty_close_all").catch(() => {}),
   invoke("ssh_close_all").catch(() => {}),
   invoke("remote_close_all").catch(() => {}),
+  invoke("tunnel_close_all").catch(() => {}),
 ]);
 
 // Seed before first paint so default tab mounts at target cwd (no flicker).

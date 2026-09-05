@@ -19,6 +19,8 @@ function profile(over: Partial<RemoteProfile> = {}): RemoteProfile {
     user: "me",
     auth: [],
     env: [],
+    jumps: [],
+    forwards: [],
     appearance: {},
     createdAt: 0,
     updatedAt: 0,

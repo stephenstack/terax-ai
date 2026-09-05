@@ -23,12 +23,14 @@ import {
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { HostDialog } from "./HostDialog";
 import { ImportConfigDialog } from "./ImportConfigDialog";
 import { emptyProfile, useRemotesStore } from "./lib/store";
 import { buildRemoteTree, profileAddress, profileLabel, uniqueName } from "./lib/tree";
-import type { RemoteProfile } from "./lib/types";
+import { describeForward, findActiveForward, useTunnelStore } from "./lib/tunnels";
+import { toast } from "sonner";
+import type { ActiveForward, RemoteForward, RemoteProfile } from "./lib/types";
 
 type Props = {
   /** Open a terminal tab connected to this host. */
@@ -37,13 +39,52 @@ type Props = {
   onOpenWorkspace: (profile: RemoteProfile) => void;
   /** Profile id of the remote workspace currently open, if any. */
   activeWorkspaceId: string | null;
+  /** Connection id backing that workspace, which forwards ride on. */
+  activeWorkspaceConn: number | null;
 };
 
 export function RemotesPanel({
   onConnect,
   onOpenWorkspace,
   activeWorkspaceId,
+  activeWorkspaceConn,
 }: Props) {
+  const activeForwards = useTunnelStore((s) => s.active);
+  const refreshForwards = useTunnelStore((s) => s.refresh);
+
+  useEffect(() => {
+    void refreshForwards();
+  }, [refreshForwards]);
+
+  const toggleForward = useCallback(
+    (profile: RemoteProfile, forward: RemoteForward) => {
+      const conn = activeWorkspaceId === profile.id ? activeWorkspaceConn : null;
+      const running = findActiveForward(
+        useTunnelStore.getState().active,
+        conn ?? -1,
+        forward,
+      );
+      if (running) {
+        void useTunnelStore.getState().stop(running.id);
+        return;
+      }
+      if (conn === null) return;
+      void useTunnelStore
+        .getState()
+        .start(conn, forward)
+        .then((info) => {
+          toast.success(
+            `Forwarding ${info.bindAddress}:${info.localPort} to ${info.remoteHost}:${info.remotePort}`,
+          );
+        })
+        .catch((e) => {
+          toast.error("Could not start the forward", {
+            description: String(e),
+          });
+        });
+    },
+    [activeWorkspaceId, activeWorkspaceConn],
+  );
   const profiles = useRemotesStore((s) => s.profiles);
   const groups = useRemotesStore((s) => s.groups);
   const hydrated = useRemotesStore((s) => s.hydrated);
@@ -108,6 +149,9 @@ export function RemotesPanel({
               onConnect={onConnect}
               onOpenWorkspace={onOpenWorkspace}
               activeWorkspaceId={activeWorkspaceId}
+              onToggleForward={toggleForward}
+              activeForwards={activeForwards}
+              activeWorkspaceConn={activeWorkspaceConn}
               onEdit={setEditing}
             />
           ))
@@ -191,6 +235,9 @@ function GroupSection({
   onConnect,
   onOpenWorkspace,
   activeWorkspaceId,
+  onToggleForward,
+  activeForwards,
+  activeWorkspaceConn,
   onEdit,
 }: {
   group: { id: string; name: string; collapsed: boolean } | null;
@@ -200,6 +247,9 @@ function GroupSection({
   onConnect: (profile: RemoteProfile) => void;
   onOpenWorkspace: (profile: RemoteProfile) => void;
   activeWorkspaceId: string | null;
+  onToggleForward: (profile: RemoteProfile, forward: RemoteForward) => void;
+  activeForwards: ActiveForward[];
+  activeWorkspaceConn: number | null;
   onEdit: (profile: RemoteProfile) => void;
 }) {
   const store = useRemotesStore.getState();
@@ -264,6 +314,9 @@ function GroupSection({
               onConnect={onConnect}
               onOpenWorkspace={onOpenWorkspace}
               activeWorkspaceId={activeWorkspaceId}
+              onToggleForward={onToggleForward}
+              activeForwards={activeForwards}
+              activeWorkspaceConn={activeWorkspaceConn}
               onEdit={onEdit}
             />
           ))}
@@ -278,6 +331,9 @@ function HostRow({
   onConnect,
   onOpenWorkspace,
   activeWorkspaceId,
+  onToggleForward,
+  activeForwards,
+  activeWorkspaceConn,
   onEdit,
 }: {
   profile: RemoteProfile;
@@ -286,10 +342,16 @@ function HostRow({
   onConnect: (profile: RemoteProfile) => void;
   onOpenWorkspace: (profile: RemoteProfile) => void;
   activeWorkspaceId: string | null;
+  onToggleForward: (profile: RemoteProfile, forward: RemoteForward) => void;
+  activeForwards: ActiveForward[];
+  activeWorkspaceConn: number | null;
   onEdit: (profile: RemoteProfile) => void;
 }) {
   const store = useRemotesStore.getState();
   const isWorkspace = activeWorkspaceId === profile.id;
+  // Forwards ride on this profile's own connection, which only exists while
+  // it is the open workspace.
+  const connForProfile = isWorkspace ? activeWorkspaceConn : null;
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -363,6 +425,42 @@ function HostRow({
           <HugeiconsIcon icon={Copy01Icon} size={13} />
           Duplicate
         </ContextMenuItem>
+        {(profile.forwards ?? []).length > 0 ? (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>Port forwards</ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-64">
+              {(profile.forwards ?? []).map((forward) => {
+                const running = findActiveForward(
+                  activeForwards,
+                  connForProfile ?? -1,
+                  forward,
+                );
+                return (
+                  <ContextMenuItem
+                    key={forward.id}
+                    disabled={connForProfile === null && !running}
+                    onSelect={() => onToggleForward(profile, forward)}
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {forward.label?.trim() || describeForward(forward)}
+                    </span>
+                    <span className="ml-2 shrink-0 text-[10px] text-muted-foreground">
+                      {running ? `stop :${running.localPort}` : "start"}
+                    </span>
+                  </ContextMenuItem>
+                );
+              })}
+              {connForProfile === null ? (
+                <>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem disabled>
+                    Open as workspace first
+                  </ContextMenuItem>
+                </>
+              ) : null}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        ) : null}
         {groups.length > 0 ? (
           <ContextMenuSub>
             <ContextMenuSubTrigger>Move to group</ContextMenuSubTrigger>

@@ -6,4 +6,5 @@ export {
   useRemoteWorkspaceStore,
 } from "./lib/workspace";
 export { profileAddress, profileLabel } from "./lib/tree";
+export { useTunnelStore } from "./lib/tunnels";
 export type { RemoteProfile } from "./lib/types";

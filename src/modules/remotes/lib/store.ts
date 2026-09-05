@@ -28,10 +28,28 @@ export function emptyProfile(): RemoteProfile {
     user: "",
     auth: [{ kind: "agent" }, { kind: "password" }],
     env: [],
+    jumps: [],
+    forwards: [],
     appearance: {},
     createdAt: now,
     updatedAt: now,
   };
+}
+
+/**
+ * Fill in fields added after a profile was first saved. Without this a stored
+ * profile from an earlier version yields `undefined` where the UI and the
+ * connect path both expect a list.
+ */
+function normalize(profiles: RemoteProfile[]): RemoteProfile[] {
+  return profiles.map((p) => ({
+    ...p,
+    auth: p.auth ?? [],
+    env: p.env ?? [],
+    jumps: p.jumps ?? [],
+    forwards: p.forwards ?? [],
+    appearance: p.appearance ?? {},
+  }));
 }
 
 type State = {
@@ -70,14 +88,17 @@ export const useRemotesStore = create<State>((set, get) => ({
         const entries = await store.entries();
         const map = new Map<string, unknown>(entries);
         set({
-          profiles: (map.get(KEY_PROFILES) as RemoteProfile[]) ?? [],
+          profiles: normalize((map.get(KEY_PROFILES) as RemoteProfile[]) ?? []),
           groups: (map.get(KEY_GROUPS) as RemoteGroup[]) ?? [],
           hydrated: true,
         });
         void listen<{ profiles: RemoteProfile[]; groups: RemoteGroup[] }>(
           REMOTES_CHANGED_EVENT,
           (e) => {
-            set({ profiles: e.payload.profiles, groups: e.payload.groups });
+            set({
+              profiles: normalize(e.payload.profiles),
+              groups: e.payload.groups,
+            });
           },
         );
       } catch (e) {
