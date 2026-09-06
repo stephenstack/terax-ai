@@ -836,7 +836,7 @@ const IDLE_SLOTS_KEEP_WARM = 1;
 
 function attachWebgl(slot: Slot): void {
   if (slot.webglAddon || !slot.term.element) return;
-  if (!usePreferencesStore.getState().terminalWebglEnabled) return;
+  if (!webglAllowed()) return;
   const elem = slot.term.element;
   const before = new Set<HTMLCanvasElement>(
     elem.querySelectorAll<HTMLCanvasElement>("canvas"),
@@ -858,7 +858,7 @@ function attachWebgl(slot: Slot): void {
       setTimeout(() => {
         if (slot.webglAddon || slot.currentLeafId === null || slot.parked)
           return;
-        if (!usePreferencesStore.getState().terminalWebglEnabled) return;
+        if (!webglAllowed()) return;
         attachWebgl(slot);
         if (slot.webglAddon) {
           try {
@@ -1026,6 +1026,24 @@ export function applyTerminalTransparency(active: boolean): void {
   for (const slot of slots) {
     slot.term.options.theme = theme;
   }
+  // The webgl renderer paints cell backgrounds itself and does not honour a
+  // transparent one, so a background image behind the canvas stays hidden
+  // under an opaque fill. The DOM renderer simply paints nothing, so it is
+  // what a see-through terminal runs on. Only terminals that opt into a
+  // background pay for it.
+  applyWebglPreference(webglAllowed());
+  for (const slot of slots) {
+    try {
+      slot.term.refresh(0, slot.term.rows - 1);
+    } catch {}
+  }
+}
+
+function webglAllowed(): boolean {
+  return (
+    !transparentBackground &&
+    usePreferencesStore.getState().terminalWebglEnabled
+  );
 }
 
 export function focusSlot(leafId: number): void {
