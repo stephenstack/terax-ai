@@ -40,7 +40,7 @@ import {
 import { HostDialog } from "./HostDialog";
 import { RemoteFiles } from "./RemoteFiles";
 import { RemoteGit } from "./RemoteGit";
-import { useRemoteBrowserStore } from "./lib/browser";
+import { useFollowTerminal, useRemoteBrowserStore } from "./lib/browser";
 import { ImportConfigDialog } from "./ImportConfigDialog";
 import { emptyProfile, useRemotesStore } from "./lib/store";
 import { buildRemoteTree, profileAddress, profileLabel, uniqueName } from "./lib/tree";
@@ -59,6 +59,9 @@ type Props = {
   activeWorkspaceConn: number | null;
   /** Send a line to the active terminal, used by the browser's "cd here". */
   onRunInTerminal?: (line: string) => void;
+  /** Profile the active terminal is connected to, and where it is standing. */
+  activeTerminalRemoteId?: string;
+  activeTerminalCwd?: string;
 };
 
 export function RemotesPanel({
@@ -67,6 +70,8 @@ export function RemotesPanel({
   activeWorkspaceId,
   activeWorkspaceConn,
   onRunInTerminal,
+  activeTerminalRemoteId,
+  activeTerminalCwd,
 }: Props) {
   const browserConn = useRemoteBrowserStore((s) => s.conn);
   const browserProfileId = useRemoteBrowserStore((s) => s.profileId);
@@ -130,6 +135,12 @@ export function RemotesPanel({
   );
 
   const showFiles = browserConn !== null || browserConnecting;
+
+  useFollowTerminal(
+    activeTerminalRemoteId === browserProfileId
+      ? activeTerminalCwd
+      : undefined,
+  );
 
   // Pointer-based rather than HTML5 drag: the window keeps Tauri's file-drop
   // handler on for the explorer and terminal, which takes the webview's drop

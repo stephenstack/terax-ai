@@ -31,6 +31,7 @@ import {
   setRestoreWindowState,
   setShowHidden,
   setTerminalCursorBlink,
+  setRemoteFollowTerminal,
   setSidebarSide,
   setTerminalCursorStyle,
   type SidebarSide,
@@ -101,6 +102,9 @@ export function GeneralSection() {
   const restoreWindowState = usePreferencesStore((s) => s.restoreWindowState);
   const showHidden = usePreferencesStore((s) => s.showHidden);
   const sidebarSide = usePreferencesStore((s) => s.sidebarSide);
+  const remoteFollowTerminal = usePreferencesStore(
+    (s) => s.remoteFollowTerminal,
+  );
   const explorerGitDecorations = usePreferencesStore(
     (s) => s.explorerGitDecorations,
   );
@@ -232,6 +236,15 @@ export function GeneralSection() {
 
       <div className="flex flex-col gap-2">
         <Label>Explorer</Label>
+        <SettingRow
+          title="Remote files follow the terminal"
+          description="Move the remote file tree, and the Git section with it, to whatever directory the terminal is in. Needs a host shell that reports its directory; turn this off to browse independently."
+        >
+          <Switch
+            checked={remoteFollowTerminal}
+            onCheckedChange={(v) => void setRemoteFollowTerminal(v)}
+          />
+        </SettingRow>
         <SettingRow
           title="Sidebar side"
           description="Which edge the explorer, source control and remotes panels sit against."

@@ -1533,6 +1533,16 @@ export default function App() {
                       {sidebarView === "remotes" ? (
                         <RemotesPanel
                           onRunInTerminal={runInActiveTerminal}
+                          activeTerminalRemoteId={
+                            activeTab?.kind === "terminal"
+                              ? activeTab.remoteId
+                              : undefined
+                          }
+                          activeTerminalCwd={
+                            activeTab?.kind === "terminal"
+                              ? activeTab.cwd
+                              : undefined
+                          }
                           onConnect={connectToRemote}
                           onOpenWorkspace={openRemoteWorkspace}
                           activeWorkspaceId={activeRemoteWorkspace?.profileId ?? null}

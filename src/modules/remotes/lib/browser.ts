@@ -1,6 +1,8 @@
 import type { DirEntry } from "@/modules/explorer/lib/useFileTree";
 import type { WorkspaceEnv } from "@/modules/workspace";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import { invoke } from "@tauri-apps/api/core";
+import { useEffect } from "react";
 import { create } from "zustand";
 import { openRemoteConnection } from "./connect";
 import type { RemoteProfile } from "./types";
@@ -160,4 +162,25 @@ export const useRemoteBrowserStore = create<State>((set, get) => ({
 export function browserEnv(): WorkspaceEnv | null {
   const { conn, profileId } = useRemoteBrowserStore.getState();
   return conn !== null && profileId ? env(conn, profileId) : null;
+}
+
+/**
+ * Walk the browser to wherever the terminal is standing, so a cd moves the
+ * tree and the git section with it. Only when the preference asks for it: the
+ * alternative is browsing somewhere and having it yanked back on the next
+ * prompt.
+ *
+ * The cwd is only known when the host's shell emits OSC 7. Nothing happens on
+ * a host that does not, which is why this cannot be the only way to navigate.
+ */
+export function useFollowTerminal(terminalCwd: string | undefined): void {
+  const follow = usePreferencesStore((s) => s.remoteFollowTerminal);
+  const conn = useRemoteBrowserStore((s) => s.conn);
+  const cwd = useRemoteBrowserStore((s) => s.cwd);
+
+  useEffect(() => {
+    if (!follow || conn === null) return;
+    if (!terminalCwd || terminalCwd === cwd) return;
+    void useRemoteBrowserStore.getState().navigate(terminalCwd);
+  }, [follow, conn, cwd, terminalCwd]);
 }

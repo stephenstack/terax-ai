@@ -4,15 +4,22 @@ import { cn } from "@/lib/utils";
 import {
   ArrowDown01Icon,
   ArrowUp01Icon,
+  CloudDownloadIcon,
+  Download04Icon,
   GitBranchIcon,
   RefreshIcon,
+  Upload04Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
+import { PanelIconButton } from "./PanelIconButton";
 import { useRemoteBrowserStore } from "./lib/browser";
 import { useRemoteGitStore } from "./lib/git";
 
 export function RemoteGit() {
+  // Always the browsed directory. Whether that tracks the terminal is the
+  // file panel's business, so there is one directory in play rather than two
+  // that can disagree.
   const cwd = useRemoteBrowserStore((s) => s.cwd);
   const conn = useRemoteBrowserStore((s) => s.conn);
   const snapshot = useRemoteGitStore((s) => s.snapshot);
@@ -28,7 +35,7 @@ export function RemoteGit() {
   }, [conn, cwd]);
 
   if (conn === null) {
-    return <Note text="Open a host to see its repositories" />;
+    return <Note text="Open a host to see its repositories." />;
   }
 
   const status = snapshot?.status;
@@ -36,8 +43,11 @@ export function RemoteGit() {
     return (
       <Note
         text={
-          loading ? "Looking for a repository" : "Not a git repository here"
+          loading
+            ? "Looking for a repository."
+            : "No Git repository at this path."
         }
+        path={cwd}
         error={error}
       />
     );
@@ -48,29 +58,59 @@ export function RemoteGit() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-1.5 px-2.5 py-1">
+      <div className="flex items-center gap-0.5 px-1.5 py-1">
+        <PanelIconButton
+          label="Refresh"
+          icon={RefreshIcon}
+          disabled={disabled}
+          onClick={() => cwd && void store().refresh(cwd)}
+        />
+        <PanelIconButton
+          label="Fetch"
+          icon={CloudDownloadIcon}
+          disabled={disabled}
+          onClick={() => void store().fetch()}
+        />
+        <PanelIconButton
+          label={
+            status.behind > 0 ? `Pull ${status.behind} behind` : "Pull"
+          }
+          icon={Download04Icon}
+          disabled={disabled}
+          onClick={() => void store().pull()}
+        />
+        <PanelIconButton
+          label={status.ahead > 0 ? `Push ${status.ahead} ahead` : "Push"}
+          icon={Upload04Icon}
+          disabled={disabled}
+          onClick={() => void store().push()}
+        />
+        {busy ? (
+          <span className="ml-1 truncate text-[10.5px] text-muted-foreground">
+            {busy}
+          </span>
+        ) : null}
+      </div>
+
+      <div
+        className="flex shrink-0 items-center gap-1.5 px-2.5 pb-1"
+        title={`${status.branch} in ${status.repoRoot}`}
+      >
         <HugeiconsIcon
           icon={GitBranchIcon}
           size={12}
           strokeWidth={1.9}
           className="shrink-0 text-muted-foreground"
         />
-        <span className="truncate text-[11.5px] text-foreground" title={status.repoRoot}>
+        <span className="truncate text-[11.5px] text-foreground">
           {status.branch}
         </span>
-        {status.behind > 0 ? <Counter icon={ArrowDown01Icon} n={status.behind} /> : null}
-        {status.ahead > 0 ? <Counter icon={ArrowUp01Icon} n={status.ahead} /> : null}
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          title="Refresh"
-          aria-label="Refresh"
-          disabled={disabled}
-          onClick={() => cwd && void store().refresh(cwd)}
-          className="ml-auto size-6 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <HugeiconsIcon icon={RefreshIcon} size={12} strokeWidth={1.75} />
-        </Button>
+        {status.behind > 0 ? (
+          <Counter icon={ArrowDown01Icon} n={status.behind} />
+        ) : null}
+        {status.ahead > 0 ? (
+          <Counter icon={ArrowUp01Icon} n={status.ahead} />
+        ) : null}
       </div>
 
       {error ? (
@@ -112,40 +152,20 @@ export function RemoteGit() {
           rows={2}
           className="mb-1.5 min-h-0 resize-none rounded-md border-border/60 bg-foreground/[0.03] text-[11.5px]"
         />
-        <div className="flex items-center gap-1.5">
-          <Button
-            size="sm"
-            disabled={disabled || files.length === 0 || !message.trim()}
-            onClick={() => {
-              void store()
-                .commit(message.trim())
-                .then(() => setMessage(""));
-            }}
-            className="h-7 flex-1 text-[11px]"
-          >
-            {busy === "Committing"
-              ? "Committing"
-              : `Commit ${files.length} change${files.length === 1 ? "" : "s"}`}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={disabled}
-            onClick={() => void store().pull()}
-            className="h-7 px-2 text-[11px]"
-          >
-            {busy === "Pulling" ? "Pulling" : "Pull"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={disabled}
-            onClick={() => void store().push()}
-            className="h-7 px-2 text-[11px]"
-          >
-            {busy === "Pushing" ? "Pushing" : "Push"}
-          </Button>
-        </div>
+        <Button
+          size="sm"
+          disabled={disabled || files.length === 0 || !message.trim()}
+          onClick={() => {
+            void store()
+              .commit(message.trim())
+              .then(() => setMessage(""));
+          }}
+          className="h-7 w-full text-[11px]"
+        >
+          {busy === "Committing"
+            ? "Committing"
+            : `Commit ${files.length} change${files.length === 1 ? "" : "s"}`}
+        </Button>
       </div>
     </div>
   );
@@ -160,10 +180,26 @@ function Counter({ icon, n }: { icon: typeof ArrowUp01Icon; n: number }) {
   );
 }
 
-function Note({ text, error }: { text: string; error?: string | null }) {
+function Note({
+  text,
+  path,
+  error,
+}: {
+  text: string;
+  path?: string | null;
+  error?: string | null;
+}) {
   return (
     <div className="px-3 py-3">
       <p className="text-[11px] text-muted-foreground">{text}</p>
+      {path ? (
+        <p
+          className="mt-1 truncate font-mono text-[10.5px] text-muted-foreground/70"
+          title={path}
+        >
+          {path}
+        </p>
+      ) : null}
       {error ? (
         <p className="mt-1 text-[11px] text-destructive">{error}</p>
       ) : null}

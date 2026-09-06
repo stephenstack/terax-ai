@@ -126,6 +126,7 @@ export type Preferences = {
   backgroundKind: BackgroundKind;
   remoteIconSet: RemoteIconSet;
   sidebarSide: SidebarSide;
+  remoteFollowTerminal: boolean;
   backgroundImageId: string | null;
   backgroundOpacity: number;
   backgroundBlur: number;
@@ -220,6 +221,7 @@ const KEY_THEME_ID = "themeId";
 const KEY_BG_KIND = "backgroundKind";
 const KEY_REMOTE_ICON_SET = "remoteIconSet";
 const KEY_SIDEBAR_SIDE = "sidebarSide";
+const KEY_REMOTE_FOLLOW_TERMINAL = "remoteFollowTerminal";
 
 /** File and folder iconography for the remote browser, ids plus labels, the
  *  same way the editor themes are declared. */
@@ -334,6 +336,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   backgroundKind: "none",
   remoteIconSet: "catppuccin",
   sidebarSide: "left",
+  remoteFollowTerminal: true,
   backgroundImageId: null,
   backgroundOpacity: 0.5,
   backgroundBlur: 0,
@@ -424,6 +427,9 @@ export async function loadPreferences(): Promise<Preferences> {
     remoteIconSet: coerceRemoteIconSet(get<string>(KEY_REMOTE_ICON_SET)),
     sidebarSide:
       get<SidebarSide>(KEY_SIDEBAR_SIDE) === "right" ? "right" : "left",
+    remoteFollowTerminal:
+      get<boolean>(KEY_REMOTE_FOLLOW_TERMINAL) ??
+      DEFAULT_PREFERENCES.remoteFollowTerminal,
     backgroundImageId:
       get<string | null>(KEY_BG_IMAGE_ID) ??
       DEFAULT_PREFERENCES.backgroundImageId,
@@ -658,6 +664,10 @@ function coerceRemoteIconSet(value: string | undefined): RemoteIconSet {
 
 /** Which edge the sidebar and its panels sit against. */
 export type SidebarSide = "left" | "right";
+
+export async function setRemoteFollowTerminal(value: boolean): Promise<void> {
+  await writePref(KEY_REMOTE_FOLLOW_TERMINAL, value);
+}
 
 export async function setSidebarSide(value: SidebarSide): Promise<void> {
   await writePref(KEY_SIDEBAR_SIDE, value);
@@ -1007,6 +1017,7 @@ export async function onPreferencesChange(
     [KEY_BG_KIND]: "backgroundKind",
     [KEY_REMOTE_ICON_SET]: "remoteIconSet",
     [KEY_SIDEBAR_SIDE]: "sidebarSide",
+    [KEY_REMOTE_FOLLOW_TERMINAL]: "remoteFollowTerminal",
     [KEY_BG_IMAGE_ID]: "backgroundImageId",
     [KEY_BG_OPACITY]: "backgroundOpacity",
     [KEY_BG_BLUR]: "backgroundBlur",

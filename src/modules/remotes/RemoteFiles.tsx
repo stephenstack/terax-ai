@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/button";
+import { PanelIconButton } from "./PanelIconButton";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -99,28 +99,28 @@ export function RemoteFiles({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-0.5 px-1.5 py-1">
-        <IconButton
+        <PanelIconButton
           label="Up one level"
           icon={ArrowUp01Icon}
           disabled={!up}
           onClick={() => up && void store().navigate(up)}
         />
-        <IconButton
+        <PanelIconButton
           label="New file"
           icon={PlusSignIcon}
           onClick={() => createEntry("file")}
         />
-        <IconButton
+        <PanelIconButton
           label="New folder"
           icon={Folder01Icon}
           onClick={() => createEntry("dir")}
         />
-        <IconButton
+        <PanelIconButton
           label={showHidden ? "Hide hidden files" : "Show hidden files"}
           icon={showHidden ? ViewIcon : ViewOffSlashIcon}
           onClick={() => store().setShowHidden(!showHidden)}
         />
-        <IconButton
+        <PanelIconButton
           label="Refresh"
           icon={RefreshIcon}
           onClick={() => void store().refresh()}
@@ -287,32 +287,6 @@ function Row({
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
-  );
-}
-
-function IconButton({
-  label,
-  icon,
-  onClick,
-  disabled,
-}: {
-  label: string;
-  icon: typeof RefreshIcon;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      title={label}
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-      className="size-6 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-    >
-      <HugeiconsIcon icon={icon} size={13} strokeWidth={1.75} />
-    </Button>
   );
 }
 

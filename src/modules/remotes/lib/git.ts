@@ -32,6 +32,7 @@ type State = {
   error: string | null;
   refresh: (cwd: string) => Promise<void>;
   commit: (message: string) => Promise<void>;
+  fetch: () => Promise<void>;
   pull: () => Promise<void>;
   push: () => Promise<void>;
 };
@@ -100,6 +101,10 @@ export const useRemoteGitStore = create<State>((set, get) => ({
     }
     const cwd = get().cwd;
     if (cwd) await get().refresh(cwd);
+  },
+
+  fetch: async () => {
+    await run(set, get, "Fetching", "git_fetch");
   },
 
   pull: async () => {

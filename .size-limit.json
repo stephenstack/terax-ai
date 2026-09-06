@@ -18,12 +18,15 @@
       "!dist/assets/material-*.js",
       "!dist/assets/vscode-*.js"
     ],
-    "limit": "1540 KB",
+    "limit": "1560 KB",
     "gzip": true
   },
   {
     "name": "remote icon sets (fetched only when selected)",
-    "path": ["dist/assets/material-*.js", "dist/assets/vscode-*.js"],
+    "path": [
+      "dist/assets/material-*.js",
+      "dist/assets/vscode-*.js"
+    ],
     "limit": "330 KB",
     "gzip": true
   }
