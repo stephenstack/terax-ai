@@ -12,6 +12,18 @@ const DEBOUNCE_MS = 260;
 /** Below this there is not enough of a command to guess at. */
 const MIN_CHARS = 3;
 
+let reported = false;
+
+function reportOnce(e: unknown): void {
+  if (reported) return;
+  reported = true;
+  void import("sonner").then(({ toast }) => {
+    toast.error("Terminal suggestions are not available", {
+      description: String(e),
+    });
+  });
+}
+
 type Ask = (line: string, cwd: string | null, signal: AbortSignal) => Promise<string>;
 
 async function askModel(
@@ -116,8 +128,11 @@ export class TerminalSuggest {
       if (ctl.signal.aborted || asked !== this.line) return;
       const text = suggestionFor(asked, raw);
       if (text) this.show(text);
-    } catch {
-      // A failed suggestion is not worth telling anyone about.
+    } catch (e) {
+      // Once per session, and only for a real failure. Silence here is what
+      // makes a missing model id or key look like a feature that does not
+      // work, with nothing anywhere to say why.
+      if (!ctl.signal.aborted) reportOnce(e);
     }
   }
 

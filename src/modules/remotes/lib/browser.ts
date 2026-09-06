@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import { openRemoteConnection } from "./connect";
 import type { RemoteProfile } from "./types";
+import { useRemotesStore } from "./store";
 import { useRemoteWorkspaceStore } from "./workspace";
 
 /** Trailing slash only for the root itself, so joins never double up. */
@@ -183,4 +184,40 @@ export function useFollowTerminal(terminalCwd: string | undefined): void {
     if (!terminalCwd || terminalCwd === cwd) return;
     void useRemoteBrowserStore.getState().navigate(terminalCwd);
   }, [follow, conn, cwd, terminalCwd]);
+}
+
+/**
+ * Keep the browser pointed at the host the user is actually looking at.
+ *
+ * Switching to another host's tab takes the files with it, and closing the
+ * last tab for a host leaves its files belonging to nothing: the browser moves
+ * on to another open host, or closes if there is none. Switching to a tab that
+ * is not a remote terminal leaves it alone, since an editor tab is no reason
+ * to tear down the files beside it.
+ */
+export function useBrowserTracksTabs(
+  openRemoteIds: string[],
+  activeRemoteId: string | undefined,
+): void {
+  const profileId = useRemoteBrowserStore((s) => s.profileId);
+  const key = openRemoteIds.join("\u0000");
+
+  useEffect(() => {
+    const open = key ? key.split("\u0000") : [];
+    const store = useRemoteBrowserStore.getState();
+    const profiles = () => useRemotesStore.getState().profiles;
+
+    if (activeRemoteId && activeRemoteId !== profileId) {
+      const profile = profiles().find((p) => p.id === activeRemoteId);
+      if (profile) void store.open(profile);
+      return;
+    }
+
+    if (!profileId || open.includes(profileId)) return;
+
+    const next = open[0];
+    const profile = next ? profiles().find((p) => p.id === next) : undefined;
+    if (profile) void store.open(profile);
+    else void store.close();
+  }, [profileId, key, activeRemoteId]);
 }

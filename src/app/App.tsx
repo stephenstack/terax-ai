@@ -63,6 +63,7 @@ import {
   profileLabel,
   RemotePrompts,
   RemotesPanel,
+  useBrowserTracksTabs,
   useRemoteBrowserStore,
   useRemotesStore,
   useRemoteWorkspaceStore,
@@ -363,6 +364,18 @@ export default function App() {
   const { hasComposer, keysLoaded } = useAiBootstrap();
 
   const activeTab = tabs.find((t) => t.id === activeId);
+
+  const openRemoteIds = useMemo(
+    () =>
+      tabs.flatMap((t) =>
+        t.kind === "terminal" && t.remoteId ? [t.remoteId] : [],
+      ),
+    [tabs],
+  );
+  useBrowserTracksTabs(
+    openRemoteIds,
+    activeTab?.kind === "terminal" ? activeTab.remoteId : undefined,
+  );
   const isTerminalTab = activeTab?.kind === "terminal";
   const isBlockTab = activeTerminalTab?.blocks === true;
   const isEditorTab = activeTab?.kind === "editor";
