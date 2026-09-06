@@ -766,6 +766,55 @@ export default function App() {
     [openFileTab, newMarkdownTab],
   );
 
+  /**
+   * Editors read and write through the active workspace, not per tab, so a
+   * remote file can only be edited once the workspace points at its host.
+   * Opening one takes the workspace with it rather than failing quietly.
+   */
+  const openRemoteFile = useCallback(
+    (path: string) => {
+      void (async () => {
+        const browser = useRemoteBrowserStore.getState();
+        const profile = browser.profileId
+          ? useRemotesStore
+              .getState()
+              .profiles.find((p) => p.id === browser.profileId)
+          : undefined;
+        if (!profile) return;
+
+        const active = useRemoteWorkspaceStore.getState().active;
+        if (active?.profileId !== profile.id) {
+          const opened = await useRemoteWorkspaceStore
+            .getState()
+            .open(profile);
+          if (!opened) {
+            toast.error(`Could not open ${profile.name || profile.host}`, {
+              description: useRemoteWorkspaceStore.getState().error ?? undefined,
+            });
+            return;
+          }
+          await switchWorkspace({
+            kind: "ssh",
+            conn: opened.conn,
+            profileId: opened.profileId,
+          });
+        }
+
+        // Saving is confined to the roots the connection has been given, so a
+        // file opened from outside them would read but never write.
+        const conn = useRemoteWorkspaceStore.getState().active?.conn;
+        const dir = path.slice(0, path.lastIndexOf("/")) || "/";
+        if (conn != null) {
+          await invoke("remote_authorize", { conn, path: dir }).catch(
+            () => undefined,
+          );
+        }
+        handleOpenFile(path, true);
+      })();
+    },
+    [switchWorkspace, handleOpenFile],
+  );
+
   const openLaunchFiles = useCallback(
     (paths: string[]) => {
       for (const path of paths) handleOpenFile(path, true);
@@ -1545,6 +1594,7 @@ export default function App() {
                           }
                           onConnect={connectToRemote}
                           onOpenWorkspace={openRemoteWorkspace}
+                          onOpenFile={openRemoteFile}
                           activeWorkspaceId={activeRemoteWorkspace?.profileId ?? null}
                           activeWorkspaceConn={activeRemoteWorkspace?.conn ?? null}
                         />

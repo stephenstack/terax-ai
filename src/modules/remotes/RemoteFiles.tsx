@@ -44,9 +44,11 @@ import {
 
 export function RemoteFiles({
   onRunInTerminal,
+  onOpenFile,
 }: {
   /** Send a line to the active terminal, used for "cd here". */
   onRunInTerminal?: (line: string) => void;
+  onOpenFile?: (path: string) => void;
 }) {
   const conn = useRemoteBrowserStore((s) => s.conn);
   const cwd = useRemoteBrowserStore((s) => s.cwd);
@@ -151,6 +153,7 @@ export function RemoteFiles({
               cwd={cwd}
               iconSet={iconSet}
               onRunInTerminal={onRunInTerminal}
+              onOpenFile={onOpenFile}
               onAct={act}
             />
           ))
@@ -165,12 +168,14 @@ function Row({
   cwd,
   iconSet,
   onRunInTerminal,
+  onOpenFile,
   onAct,
 }: {
   entry: DirEntry;
   cwd: string;
   iconSet: RemoteIconSet;
   onRunInTerminal?: (line: string) => void;
+  onOpenFile?: (path: string) => void;
   onAct: (label: string, fn: () => Promise<unknown>) => Promise<void>;
 }) {
   const path = joinRemote(cwd, entry.name);
@@ -223,7 +228,9 @@ function Row({
       <ContextMenuTrigger asChild>
         <button
           type="button"
-          onDoubleClick={() => isDir && void store().navigate(path)}
+          onDoubleClick={() =>
+            isDir ? void store().navigate(path) : onOpenFile?.(path)
+          }
           className={cn(
             "flex w-full items-center gap-2 px-2.5 py-[3px] text-left transition-colors",
             "hover:bg-foreground/[0.045] focus-visible:bg-foreground/[0.06] focus-visible:outline-none",
@@ -264,10 +271,29 @@ function Row({
             ) : null}
           </>
         ) : (
-          <ContextMenuItem onSelect={download}>
-            <HugeiconsIcon icon={Download04Icon} size={13} />
-            Download
-          </ContextMenuItem>
+          <>
+            {onOpenFile ? (
+              <ContextMenuItem onSelect={() => onOpenFile(path)}>
+                Open in editor
+              </ContextMenuItem>
+            ) : null}
+            {onRunInTerminal ? (
+              <ContextMenuItem
+                onSelect={() =>
+                  onRunInTerminal(
+                    `\${EDITOR:-vi} ${quoteShellArg(path, false)}`,
+                  )
+                }
+              >
+                Open in terminal editor
+              </ContextMenuItem>
+            ) : null}
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={download}>
+              <HugeiconsIcon icon={Download04Icon} size={13} />
+              Download
+            </ContextMenuItem>
+          </>
         )}
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={rename}>

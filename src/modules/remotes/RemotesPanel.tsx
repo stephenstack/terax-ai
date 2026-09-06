@@ -61,6 +61,8 @@ type Props = {
   activeWorkspaceConn: number | null;
   /** Send a line to the active terminal, used by the browser's "cd here". */
   onRunInTerminal?: (line: string) => void;
+  /** Open a remote file in an editor tab. */
+  onOpenFile?: (path: string) => void;
   /** Profile the active terminal is connected to, and where it is standing. */
   activeTerminalRemoteId?: string;
   activeTerminalCwd?: string;
@@ -72,6 +74,7 @@ export function RemotesPanel({
   activeWorkspaceId,
   activeWorkspaceConn,
   onRunInTerminal,
+  onOpenFile,
   activeTerminalRemoteId,
   activeTerminalCwd,
 }: Props) {
@@ -272,7 +275,10 @@ export function RemotesPanel({
                         void useRemoteBrowserStore.getState().close()
                       }
                     >
-                      <RemoteFiles onRunInTerminal={onRunInTerminal} />
+                      <RemoteFiles
+                        onRunInTerminal={onRunInTerminal}
+                        onOpenFile={onOpenFile}
+                      />
                     </Section>
                   ),
                 },
