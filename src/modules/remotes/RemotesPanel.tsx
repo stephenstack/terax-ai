@@ -429,6 +429,7 @@ function GroupSection({
             <HostRow
               key={profile.id}
               profile={profile}
+              indented={group !== null}
               groups={groups}
               allNames={allNames}
               isDragging={draggingId === profile.id}
@@ -448,6 +449,7 @@ function GroupSection({
 
 function HostRow({
   profile,
+  indented,
   groups,
   allNames,
   isDragging,
@@ -461,6 +463,8 @@ function HostRow({
   onEdit,
 }: {
   profile: RemoteProfile;
+  /** Hosts sit under their group heading, ungrouped ones stay flush. */
+  indented: boolean;
   groups: Array<{ id: string; name: string }>;
   allNames: string[];
   isDragging: boolean;
@@ -483,7 +487,8 @@ function HostRow({
         <div
           onPointerDown={(e) => onDragPointerDown(e, profile.id)}
           className={cn(
-            "group flex w-full items-center gap-2 px-2.5 py-[5px] transition-colors",
+            "group flex w-full items-center gap-2 py-[5px] pe-2.5 transition-colors",
+            indented ? "ps-5" : "ps-2.5",
             "hover:bg-foreground/[0.045] focus-within:bg-foreground/[0.06]",
             isDragging && "opacity-50",
           )}

@@ -115,7 +115,7 @@ export function HostDialog({ profile, groups, onClose }: Props) {
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
             {profile.host ? "Edit host" : "New remote host"}
