@@ -5,6 +5,7 @@ import {
 } from "@/components/ui/resizable";
 import type { SearchAddon } from "@xterm/addon-search";
 import type { TerminalAppearanceOverride } from "./lib/appearanceOverride";
+import type { TerminalBackground } from "./lib/terminalBackground";
 import { Fragment } from "react";
 import { useTerminalDropStore } from "./lib/dropStore";
 import { firstLeafSlotId, type PaneNode } from "./lib/panes";
@@ -25,6 +26,7 @@ type Props = {
   /** Set when every pane in this tab is an SSH session. */
   remoteId?: string;
   appearance?: TerminalAppearanceOverride;
+  background?: TerminalBackground;
   onFocusLeaf: (leafId: number) => void;
   getBundle: (leafId: number) => LeafBundle;
 };
@@ -32,7 +34,7 @@ type Props = {
 export function PaneTreeView(props: Props) {
   const { node } = props;
   if (node.kind === "leaf") {
-    const { tabVisible, activeLeafId, blocks, remoteId, appearance, onFocusLeaf, getBundle } =
+    const { tabVisible, activeLeafId, blocks, remoteId, appearance, background, onFocusLeaf, getBundle } =
       props;
     const focused = node.id === activeLeafId;
     const b = getBundle(node.id);
@@ -57,6 +59,7 @@ export function PaneTreeView(props: Props) {
           blocks={blocks}
           remoteId={remoteId}
           appearance={appearance}
+          background={background}
           ref={b.setRef}
           onSearchReady={b.onSearchReady}
           onCwd={b.onCwd}

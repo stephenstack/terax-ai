@@ -9,9 +9,9 @@ import { leafIds } from "./lib/panes";
 import { PaneTreeView } from "./PaneTreeView";
 import type { TerminalPaneHandle } from "./TerminalPane";
 
-// Above the panes so it tints the terminal the way the app-wide layer tints
-// the window. Never interactive.
-const BG_Z = 20;
+// Behind the panes: the terminal canvas goes transparent above it, so the
+// image sits under the text rather than washing over it. Never interactive.
+const BG_Z = 0;
 
 type Props = {
   tabs: Tab[];
@@ -125,6 +125,7 @@ export function TerminalStack({
               appearance={
                 t.remoteId ? remoteAppearance?.get(t.remoteId) : undefined
               }
+              background={bg}
               onFocusLeaf={(leafId) => onFocusLeaf(t.id, leafId)}
               getBundle={getBundle}
             />

@@ -8,7 +8,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { type FontWeight, Terminal } from "@xterm/xterm";
+import { type FontWeight, type ITheme, Terminal } from "@xterm/xterm";
 import { shouldCursorBlink } from "./cursorBlink";
 import {
   clearXtermKeyData,
@@ -177,6 +177,9 @@ function getRecycler(): HTMLDivElement {
 }
 
 const MCR_BG_ACTIVE = 4.5;
+/** Fully transparent, so a background behind the canvas reads through it. */
+const TRANSPARENT_BG = "#00000000";
+let transparentBackground = false;
 const MCR_BG_INACTIVE = 1;
 
 function bgActive(
@@ -197,7 +200,12 @@ function termOptions() {
     fontWeight: font.fontWeight as FontWeight,
     letterSpacing: prefs.terminalLetterSpacing,
     fontSize: font.fontSize,
-    theme: buildTerminalTheme(),
+    theme: currentTheme(),
+    // xterm reads this once, at open(), and the webgl context's alpha is fixed
+    // when the context is created, so it cannot be toggled per host later. It
+    // is therefore always on and the theme's background alpha is what actually
+    // varies. With an opaque background the rendering is unchanged.
+    allowTransparency: true,
     cursorBlink: false,
     cursorStyle: prefs.terminalCursorStyle,
     cursorInactiveStyle: "outline" as const,
@@ -994,8 +1002,27 @@ export function applyScrollback(value: number): void {
   }
 }
 
-export function applyTheme(): void {
+function currentTheme(): ITheme {
   const theme = buildTerminalTheme();
+  return transparentBackground ? { ...theme, background: TRANSPARENT_BG } : theme;
+}
+
+export function applyTheme(): void {
+  const theme = currentTheme();
+  for (const slot of slots) {
+    slot.term.options.theme = theme;
+  }
+}
+
+/**
+ * Let whatever sits behind the canvas show through, for a terminal that has
+ * its own background image. Shared by the pool like every other appearance
+ * value, so the active pane drives it and restores it on the way out.
+ */
+export function applyTerminalTransparency(active: boolean): void {
+  if (transparentBackground === active) return;
+  transparentBackground = active;
+  const theme = currentTheme();
   for (const slot of slots) {
     slot.term.options.theme = theme;
   }

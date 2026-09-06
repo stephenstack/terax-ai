@@ -1,5 +1,6 @@
 import { useTheme } from "@/modules/theme";
 import type { TerminalAppearanceOverride } from "./lib/appearanceOverride";
+import type { TerminalBackground } from "./lib/terminalBackground";
 import type { SearchAddon } from "@xterm/addon-search";
 import {
   forwardRef,
@@ -37,6 +38,8 @@ type Props = {
   remoteId?: string;
   /** Per-session appearance, overriding the global preferences. */
   appearance?: TerminalAppearanceOverride;
+  /** Set when this pane's terminal has its own background behind the text. */
+  background?: TerminalBackground;
   onSearchReady?: (leafId: number, addon: SearchAddon) => void;
   onExit?: (leafId: number, code: number) => void;
   onCwd?: (leafId: number, cwd: string) => void;
@@ -52,6 +55,7 @@ export const TerminalPane = memo(
       blocks = false,
       remoteId,
       appearance,
+      background,
       onSearchReady,
       onExit,
       onCwd,
@@ -66,6 +70,7 @@ export const TerminalPane = memo(
       leafId,
       remoteId,
       appearance,
+      background,
       container: containerRef,
       visible,
       focused,

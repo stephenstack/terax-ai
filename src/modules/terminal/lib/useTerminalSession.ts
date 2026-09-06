@@ -28,6 +28,7 @@ import {
   resolveAppearance,
   type TerminalAppearanceOverride,
 } from "./appearanceOverride";
+import type { TerminalBackground } from "./terminalBackground";
 import {
   remoteLeafHasForegroundProcess,
   remoteLeafHoldsSlot,
@@ -37,6 +38,7 @@ import { ensureAgentActivityListener, isAgentActivePty } from "./agentActivity";
 import {
   acquireSlot,
   applyBackgroundActive,
+  applyTerminalTransparency,
   applyCursorBlink,
   applyCursorStyle,
   applyLetterSpacing,
@@ -886,6 +888,7 @@ type Options = {
   remoteId?: string;
   /** Per-session appearance, overriding the global preferences. */
   appearance?: TerminalAppearanceOverride;
+  background?: TerminalBackground;
   onSearchReady?: (addon: SearchAddon) => void;
   onExit?: (code: number) => void;
   onCwd?: (cwd: string) => void;
@@ -900,6 +903,7 @@ export function useTerminalSession({
   blocks = false,
   remoteId,
   appearance,
+  background,
   onSearchReady,
   onExit,
   onCwd,
@@ -1023,8 +1027,16 @@ export function useTerminalSession({
     (p) => p.backgroundKind === "image" && !!p.backgroundImageId,
   );
   useEffect(() => {
-    applyBackgroundActive(bgActive);
-  }, [bgActive]);
+    applyBackgroundActive(bgActive || !!background);
+  }, [bgActive, background]);
+
+  // Same ownership rule as the other appearance values: gating every pane, not
+  // just the ones with a background, is what turns transparency back off when
+  // focus leaves a host that had one.
+  useEffect(() => {
+    if (!owns) return;
+    applyTerminalTransparency(!!background);
+  }, [owns, background]);
 
   useEffect(() => {
     const s = sessions.get(leafId);
