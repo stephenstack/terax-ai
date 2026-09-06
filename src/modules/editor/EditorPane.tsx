@@ -34,6 +34,7 @@ import {
   inlineCompletion,
   triggerInlineCompletion,
 } from "./lib/autocomplete/inlineExtension";
+import { resolveCompletionDeps } from "./lib/autocomplete/deps";
 import { diagnosticsReporter } from "./lib/diagnosticsReporter";
 import { useDiagnosticsStore } from "./lib/diagnosticsStore";
 import {
@@ -337,38 +338,10 @@ export const EditorPane = memo(
         inlineCompletion({
           getPrefs: () => {
             const s = usePreferencesStore.getState();
-            const p = s.autocompleteProvider;
-            // autocompleteModelId holds the compat- id of the chosen endpoint.
-            const compatEp =
-              p === "openai-compatible"
-                ? s.customEndpoints.find(
-                    (e) =>
-                      e.id === endpointIdFromCompatModel(s.autocompleteModelId),
-                  )
-                : undefined;
-            const modelId =
-              p === "lmstudio"
-                ? s.lmstudioModelId
-                : p === "mlx"
-                  ? s.mlxModelId
-                  : p === "ollama"
-                    ? s.ollamaModelId
-                    : p === "openai-compatible"
-                      ? (compatEp?.modelId ?? "")
-                      : p === "openrouter"
-                        ? s.openrouterModelId
-                        : s.autocompleteModelId;
             return {
               enabled: s.autocompleteEnabled,
               trigger: s.autocompleteTrigger,
-              provider: p,
-              modelId,
-              apiKey: apiKeyRef.current,
-              lmstudioBaseURL: s.lmstudioBaseURL,
-              mlxBaseURL: s.mlxBaseURL,
-              ollamaBaseURL: s.ollamaBaseURL,
-              openaiCompatibleBaseURL:
-                compatEp?.baseURL ?? s.openaiCompatibleBaseURL,
+              ...resolveCompletionDeps(s, apiKeyRef.current),
             };
           },
           getPath: () => pathRef.current,

@@ -32,6 +32,7 @@ import {
   setShowHidden,
   setTerminalCursorBlink,
   setRemoteFollowTerminal,
+  setTerminalAutocomplete,
   setSidebarSide,
   setTerminalCursorStyle,
   type SidebarSide,
@@ -104,6 +105,9 @@ export function GeneralSection() {
   const sidebarSide = usePreferencesStore((s) => s.sidebarSide);
   const remoteFollowTerminal = usePreferencesStore(
     (s) => s.remoteFollowTerminal,
+  );
+  const terminalAutocomplete = usePreferencesStore(
+    (s) => s.terminalAutocomplete,
   );
   const explorerGitDecorations = usePreferencesStore(
     (s) => s.explorerGitDecorations,
@@ -236,6 +240,15 @@ export function GeneralSection() {
 
       <div className="flex flex-col gap-2">
         <Label>Explorer</Label>
+        <SettingRow
+          title="Terminal AI suggestions"
+          description="Suggest the rest of a command as you type, from the same model as editor autocomplete. Right Arrow or End accepts, Escape dismisses. Off by default: each pause in typing is a model request."
+        >
+          <Switch
+            checked={terminalAutocomplete}
+            onCheckedChange={(v) => void setTerminalAutocomplete(v)}
+          />
+        </SettingRow>
         <SettingRow
           title="Remote files follow the terminal"
           description="Move the remote file tree, and the Git section with it, to whatever directory the terminal is in. Needs a host shell that reports its directory; turn this off to browse independently."

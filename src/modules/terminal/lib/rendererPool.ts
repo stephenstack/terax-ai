@@ -10,6 +10,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type FontWeight, type ITheme, Terminal } from "@xterm/xterm";
 import { shouldCursorBlink } from "./cursorBlink";
+import { TerminalSuggest } from "./terminalSuggest";
 import {
   clearXtermKeyData,
   createImeBridgeState,
@@ -61,6 +62,7 @@ export type Slot = {
   readonly serializeAddon: SerializeAddon;
   readonly host: HTMLDivElement;
   webglAddon: WebglAddon | null;
+  suggest: TerminalSuggest | null;
   webglCanvases: HTMLCanvasElement[];
   currentLeafId: number | null;
   // Leaf whose buffer this slot still holds intact after release; serialized
@@ -256,6 +258,9 @@ function createSlot(): Slot {
     serializeAddon,
     host,
     webglAddon: null,
+    // The cwd is not threaded in yet, so the model sees the line alone. The
+    // typed command is the signal that matters; the directory would sharpen it.
+    suggest: new TerminalSuggest(term, () => null),
     webglCanvases: [],
     currentLeafId: null,
     retainedLeafId: null,
@@ -342,6 +347,19 @@ function createSlot(): Slot {
       if (event.type === "keydown") bridge.writeToPty("\x1b\r");
       return false;
     }
+    // Ahead of the chords: accepting a suggestion is a plain arrow key, and
+    // must not reach the shell as cursor movement.
+    if (event.type === "keydown") {
+      try {
+        if (slot.suggest?.onKey(event)) {
+          event.preventDefault();
+          return false;
+        }
+      } catch {
+        slot.suggest = null;
+      }
+    }
+
     const plainCopy = isPlainCopy(event, slot.term.hasSelection());
     if (isTerminalCopy(event) || plainCopy) {
       if (event.type === "keydown" && slot.term.hasSelection()) {

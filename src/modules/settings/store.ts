@@ -127,6 +127,7 @@ export type Preferences = {
   remoteIconSet: RemoteIconSet;
   sidebarSide: SidebarSide;
   remoteFollowTerminal: boolean;
+  terminalAutocomplete: boolean;
   backgroundImageId: string | null;
   backgroundOpacity: number;
   backgroundBlur: number;
@@ -222,6 +223,7 @@ const KEY_BG_KIND = "backgroundKind";
 const KEY_REMOTE_ICON_SET = "remoteIconSet";
 const KEY_SIDEBAR_SIDE = "sidebarSide";
 const KEY_REMOTE_FOLLOW_TERMINAL = "remoteFollowTerminal";
+const KEY_TERMINAL_AUTOCOMPLETE = "terminalAutocomplete";
 
 /** File and folder iconography for the remote browser, ids plus labels, the
  *  same way the editor themes are declared. */
@@ -337,6 +339,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   remoteIconSet: "catppuccin",
   sidebarSide: "left",
   remoteFollowTerminal: true,
+  terminalAutocomplete: false,
   backgroundImageId: null,
   backgroundOpacity: 0.5,
   backgroundBlur: 0,
@@ -430,6 +433,9 @@ export async function loadPreferences(): Promise<Preferences> {
     remoteFollowTerminal:
       get<boolean>(KEY_REMOTE_FOLLOW_TERMINAL) ??
       DEFAULT_PREFERENCES.remoteFollowTerminal,
+    terminalAutocomplete:
+      get<boolean>(KEY_TERMINAL_AUTOCOMPLETE) ??
+      DEFAULT_PREFERENCES.terminalAutocomplete,
     backgroundImageId:
       get<string | null>(KEY_BG_IMAGE_ID) ??
       DEFAULT_PREFERENCES.backgroundImageId,
@@ -664,6 +670,10 @@ function coerceRemoteIconSet(value: string | undefined): RemoteIconSet {
 
 /** Which edge the sidebar and its panels sit against. */
 export type SidebarSide = "left" | "right";
+
+export async function setTerminalAutocomplete(value: boolean): Promise<void> {
+  await writePref(KEY_TERMINAL_AUTOCOMPLETE, value);
+}
 
 export async function setRemoteFollowTerminal(value: boolean): Promise<void> {
   await writePref(KEY_REMOTE_FOLLOW_TERMINAL, value);
@@ -1018,6 +1028,7 @@ export async function onPreferencesChange(
     [KEY_REMOTE_ICON_SET]: "remoteIconSet",
     [KEY_SIDEBAR_SIDE]: "sidebarSide",
     [KEY_REMOTE_FOLLOW_TERMINAL]: "remoteFollowTerminal",
+    [KEY_TERMINAL_AUTOCOMPLETE]: "terminalAutocomplete",
     [KEY_BG_IMAGE_ID]: "backgroundImageId",
     [KEY_BG_OPACITY]: "backgroundOpacity",
     [KEY_BG_BLUR]: "backgroundBlur",
