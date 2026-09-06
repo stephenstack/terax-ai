@@ -3,7 +3,11 @@ import type { PtySession } from "@/modules/terminal";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { registerRemoteOpener } from "@/modules/terminal";
 import { cancelPrompt, openSsh, respondToPrompt } from "./ssh-bridge";
-import { installShellIntegration } from "./shellIntegration";
+import { createEchoSuppressor } from "./echoSuppressor";
+import {
+  installShellIntegration,
+  SHELL_INTEGRATION,
+} from "./shellIntegration";
 import { profileToTarget } from "./target";
 import { findProfile } from "./store";
 import type { SshEvent } from "./types";
@@ -171,13 +175,31 @@ export function installRemoteOpener(): void {
       }
     };
 
+    // The host's own shell reports nothing about where it is, so the tree and
+    // the git section have nothing to follow until the hook is installed. Its
+    // echo is stripped from the stream rather than cleared from the screen,
+    // which would take the host's banner and login output with it.
+    const integrate = usePreferencesStore.getState().remoteFollowTerminal;
+    const suppress = integrate
+      ? createEchoSuppressor(SHELL_INTEGRATION)
+      : null;
+    let sendIntegration: (() => void) | null = null;
+    const onData = (bytes: Uint8Array) => {
+      handlers.onData(suppress ? suppress(bytes) : bytes);
+      // Sent once the shell has spoken, so readline draws it under the prompt
+      // rather than the pty echoing it raw beforehand as well.
+      const send = sendIntegration;
+      sendIntegration = null;
+      send?.();
+    };
+
     try {
       const session: PtySession & { id: number } = await openSsh(
         cols,
         rows,
         profileToTarget(profile),
         {
-          onData: handlers.onData,
+          onData,
           onEvent,
           onExit: handlers.onExit,
         },
@@ -185,10 +207,9 @@ export function installRemoteOpener(): void {
           sessionId = reserved;
         },
       );
-      // The host's own shell reports nothing about where it is, so the tree
-      // and the git section have nothing to follow until this is installed.
-      if (usePreferencesStore.getState().remoteFollowTerminal) {
-        installShellIntegration((data) => void session.write(data));
+      if (integrate) {
+        sendIntegration = () =>
+          installShellIntegration((data) => void session.write(data));
       }
       return session;
     } catch (e) {
