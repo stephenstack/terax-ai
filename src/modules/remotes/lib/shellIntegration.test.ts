@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { installShellIntegration, SHELL_INTEGRATION } from "./shellIntegration";
+import { armShellIntegration, SHELL_INTEGRATION } from "./shellIntegration";
 
 describe("SHELL_INTEGRATION", () => {
   it("keeps the emitter unexpanded so it runs at each prompt", () => {
@@ -23,12 +23,37 @@ describe("SHELL_INTEGRATION", () => {
     expect(SHELL_INTEGRATION.startsWith(" ")).toBe(true);
   });
 
-  it("submits the line with a carriage return", () => {
+  it("waits for a pause before typing, and only types once", async () => {
     let sent = "";
-    installShellIntegration((d) => {
+    let calls = 0;
+    const armed = armShellIntegration((d: string) => {
       sent = d;
+      calls += 1;
     });
+
+    // Still talking: a banner's pager would swallow the line.
+    armed.onData();
+    armed.onData();
+    expect(calls).toBe(0);
+
+    await new Promise((r) => setTimeout(r, 600));
+    expect(calls).toBe(1);
     // CR, not LF: the same reason the terminal sends CR for Enter.
     expect(sent.endsWith("\r")).toBe(true);
+
+    armed.onData();
+    await new Promise((r) => setTimeout(r, 600));
+    expect(calls).toBe(1);
+  });
+
+  it("can be cancelled before it types anything", async () => {
+    let calls = 0;
+    const armed = armShellIntegration(() => {
+      calls += 1;
+    });
+    armed.onData();
+    armed.cancel();
+    await new Promise((r) => setTimeout(r, 600));
+    expect(calls).toBe(0);
   });
 });

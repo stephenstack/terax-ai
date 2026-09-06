@@ -4,10 +4,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { registerRemoteOpener } from "@/modules/terminal";
 import { cancelPrompt, openSsh, respondToPrompt } from "./ssh-bridge";
 import { createEchoSuppressor } from "./echoSuppressor";
-import {
-  installShellIntegration,
-  SHELL_INTEGRATION,
-} from "./shellIntegration";
+import { armShellIntegration, SHELL_INTEGRATION } from "./shellIntegration";
 import { profileToTarget } from "./target";
 import { findProfile } from "./store";
 import type { SshEvent } from "./types";
@@ -179,11 +176,16 @@ export function installRemoteOpener(): void {
     // the git section have nothing to follow until the hook is installed. Its
     // echo is stripped from the stream rather than cleared from the screen,
     // which would take the host's banner and login output with it.
-    const integrate = usePreferencesStore.getState().remoteFollowTerminal;
+    // Only an interactive shell has a prompt to hook. A profile that runs a
+    // command instead gets the line typed into that program's stdin, which is
+    // at best noise and at worst leaves it waiting on input that never comes.
+    const integrate =
+      usePreferencesStore.getState().remoteFollowTerminal &&
+      !profile.command?.trim();
     const suppress = integrate
       ? createEchoSuppressor(SHELL_INTEGRATION)
       : null;
-    let sendIntegration: (() => void) | null = null;
+    let armed: { onData: () => void; cancel: () => void } | null = null;
     let filter = suppress;
     const onData = (bytes: Uint8Array) => {
       // Nothing about following the terminal is worth a dead session, and a
@@ -200,12 +202,8 @@ export function installRemoteOpener(): void {
       }
       handlers.onData(out);
 
-      // Sent once the shell has spoken, so readline draws it under the prompt
-      // rather than the pty echoing it raw beforehand as well.
-      const send = sendIntegration;
-      sendIntegration = null;
       try {
-        send?.();
+        armed?.onData();
       } catch {}
     };
 
@@ -224,8 +222,7 @@ export function installRemoteOpener(): void {
         },
       );
       if (integrate) {
-        sendIntegration = () =>
-          installShellIntegration((data) => void session.write(data));
+        armed = armShellIntegration((data) => void session.write(data));
       }
       return session;
     } catch (e) {

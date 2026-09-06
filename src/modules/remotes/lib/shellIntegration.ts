@@ -25,11 +25,44 @@ export const SHELL_INTEGRATION = [
   ` fi`,
 ].join("");
 
+/** Wait for the session to stop talking before typing into it. */
+const SETTLE_MS = 400;
+
 /**
- * Safe to send the moment the channel is open: the remote pty buffers input,
- * so the line waits and runs at the first prompt, after the rc files that
- * would otherwise overwrite what it sets.
+ * Send the hook once the session has gone quiet.
+ *
+ * Typing it the instant bytes appear puts it into whatever is still running:
+ * a login banner's pager, a shell that has not finished setting up its tty, a
+ * prompt that has not been drawn. Waiting for a pause means it lands at a
+ * prompt, which is the only place it makes sense.
+ *
+ * Returns a function to call on every chunk, and one to cancel.
  */
-export function installShellIntegration(write: (data: string) => void): void {
-  write(`${SHELL_INTEGRATION}\r`);
+export function armShellIntegration(write: (data: string) => void): {
+  onData: () => void;
+  cancel: () => void;
+} {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let sent = false;
+
+  const clear = () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+  };
+
+  return {
+    onData: () => {
+      if (sent) return;
+      clear();
+      timer = setTimeout(() => {
+        timer = null;
+        sent = true;
+        write(`${SHELL_INTEGRATION}\r`);
+      }, SETTLE_MS);
+    },
+    cancel: () => {
+      sent = true;
+      clear();
+    },
+  };
 }
