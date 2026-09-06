@@ -15,12 +15,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { AccentPicker } from "@/components/AccentPicker";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  ACCENT_COLORS,
-  ACCENT_NAMES,
-  normalizeAccent,
-} from "@/lib/accentColors";
 import { cn } from "@/lib/utils";
 import { AgentIcon } from "@/modules/agents/lib/agentIcon";
 import type { AgentLaunchRequest } from "@/modules/agents/lib/launcher";
@@ -60,6 +56,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { resolveTabAccent } from "./lib/tabAccent";
 import { labelFor } from "./lib/tabLabel";
 import type { EditorTab, Tab } from "./lib/useTabs";
 import { NewTabMenu } from "./NewTabMenu";
@@ -86,6 +83,8 @@ type Props = {
   onRename: (id: number, title: string) => void;
   /** Set a terminal tab's accent; empty string clears it. */
   onRecolor: (id: number, color: string) => void;
+  /** A remote host's own accent, inherited by its tabs. */
+  hostColor?: (remoteId: string) => string | undefined;
   /** Move a dragged tab to a new position (insertion gap index 0..tabs.length). */
   onReorder: (fromId: number, toGapIndex: number) => void;
   onOverrideLanguage?: (id: number, lang: string | null) => void;
@@ -109,10 +108,12 @@ export function TabBar({
   onPin,
   onRename,
   onRecolor,
+  hostColor,
   onReorder,
   onOverrideLanguage,
   compact,
 }: Props) {
+  const hostColorFor = hostColor ?? noHostColor;
   const scrollRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -254,6 +255,7 @@ export function TabBar({
               const isPreview =
                 (t.kind === "editor" || t.kind === "git-diff") && t.preview;
               const isActive = t.id === activeId;
+              const accent = resolveTabAccent(t, hostColorFor);
               const isNew = !firstRender && !seen.has(t.id);
 
               const srcIndex = tabs.findIndex((x) => x.id === draggingId);
@@ -369,14 +371,11 @@ export function TabBar({
                         : "ps-2! pe-1!",
                   )}
                 >
-                  {t.kind === "terminal" && t.color && (
+                  {accent && (
                     <span
                       aria-hidden
                       className="pointer-events-none absolute inset-x-1.5 bottom-0.5 h-0.5 rounded-full"
-                      style={{
-                        background: t.color,
-                        opacity: isActive ? 1 : 0.6,
-                      }}
+                      style={{ background: accent, opacity: isActive ? 1 : 0.6 }}
                     />
                   )}
                   <span
@@ -560,10 +559,12 @@ export function TabBar({
                             <span className="flex-1">Color</span>
                           </ContextMenuSubTrigger>
                           <ContextMenuSubContent className="p-2">
-                            <TabColorPicker
-                              current={t.color}
-                              onPick={(value) => onRecolor(t.id, value)}
-                            />
+                            <div className="w-44">
+                              <AccentPicker
+                                current={t.color}
+                                onPick={(value) => onRecolor(t.id, value)}
+                              />
+                            </div>
                           </ContextMenuSubContent>
                         </ContextMenuSub>
                         {tabs.length > 1 && (
@@ -770,77 +771,8 @@ export function TabIcon({ tab }: { tab: Tab }) {
   );
 }
 
-function TabColorPicker({
-  current,
-  onPick,
-}: {
-  current: string | undefined;
-  onPick: (value: string) => void;
-}) {
-  const [hex, setHex] = useState(current?.startsWith("#") ? current : "");
-  const custom = normalizeAccent(hex);
-
-  return (
-    <div className="flex w-44 flex-col gap-2">
-      <div className="grid grid-cols-4 gap-1.5">
-        {ACCENT_COLORS.map((c, i) => (
-          <button
-            key={c}
-            type="button"
-            aria-label={ACCENT_NAMES[i]}
-            aria-pressed={current === c}
-            onClick={() => onPick(c)}
-            className={cn(
-              "flex h-6 items-center justify-center rounded-md ring-offset-1 ring-offset-popover transition",
-              current === c && "ring-2 ring-ring",
-            )}
-            style={{ background: c }}
-          >
-            {current === c && (
-              <HugeiconsIcon
-                icon={Tick02Icon}
-                size={12}
-                strokeWidth={2.5}
-                className="text-white"
-              />
-            )}
-          </button>
-        ))}
-      </div>
-      <div className="flex items-center gap-1.5">
-        <span
-          aria-hidden
-          className="size-5 shrink-0 rounded-md border border-border"
-          style={custom ? { background: custom } : undefined}
-        />
-        <input
-          value={hex}
-          onChange={(e) => setHex(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key !== "Enter") return;
-            e.preventDefault();
-            if (custom) onPick(custom);
-          }}
-          placeholder="#1a2b3c"
-          aria-label="Custom colour as hex"
-          aria-invalid={hex.trim() !== "" && !custom}
-          spellCheck={false}
-          className={cn(
-            "h-6 w-full min-w-0 rounded-md border border-border bg-transparent px-1.5 font-mono text-[11px] outline-none focus:border-ring",
-            hex.trim() !== "" && !custom && "border-destructive",
-          )}
-        />
-      </div>
-      <button
-        type="button"
-        onClick={() => onPick("")}
-        disabled={!current}
-        className="h-6 rounded-md text-[11.5px] text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-      >
-        Clear color
-      </button>
-    </div>
-  );
+function noHostColor(): undefined {
+  return undefined;
 }
 
 function TabRenameInput({
