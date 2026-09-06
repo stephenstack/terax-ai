@@ -111,6 +111,29 @@ describe("hydrateTabs", () => {
     expect(restored.cwd).toBe("/b");
   });
 
+  it("round-trips a tab accent", () => {
+    const [restored] = hydrateTabs(
+      serializeTabs([term({ color: "#1a2b3c" })]),
+      "s1",
+      counter(),
+    );
+    expect(restored.kind === "terminal" && restored.color).toBe("#1a2b3c");
+  });
+
+  it("drops an accent the store cannot have written", () => {
+    // The file on disk is editable by hand, so a restored colour goes to CSS
+    // only after passing the same validation a typed one does.
+    const poisoned: SerializedTab[] = [
+      {
+        kind: "terminal",
+        tree: { kind: "leaf", cwd: "/a", active: true },
+        color: "red; position: fixed; inset: 0",
+      },
+    ];
+    const [restored] = hydrateTabs(poisoned, "s1", counter());
+    expect(restored.kind === "terminal" && restored.color).toBeUndefined();
+  });
+
   it("allocates fresh, unique, monotonic ids across all tabs and leaves", () => {
     const tree: PaneNode = {
       kind: "split",

@@ -1,3 +1,4 @@
+import { normalizeAccent } from "@/lib/accentColors";
 import {
   isLeaf,
   type PaneNode,
@@ -21,6 +22,7 @@ export type SerializedTab =
       tree: SerializedNode;
       blocks?: boolean;
       customTitle?: string;
+      color?: string;
     }
   | { kind: "editor"; path: string }
   | { kind: "preview"; url: string }
@@ -76,6 +78,7 @@ function serializeTab(tab: Tab): SerializedTab | null {
         tree: serializeNode(tab.paneTree, tab.activeLeafId),
         ...(tab.blocks && { blocks: true }),
         ...(tab.customTitle !== undefined && { customTitle: tab.customTitle }),
+        ...(tab.color !== undefined && { color: tab.color }),
       };
     case "editor":
       return { kind: "editor", path: tab.path };
@@ -149,6 +152,7 @@ function hydrateTab(
   switch (s.kind) {
     case "terminal": {
       const { tree, activeLeafId, firstLeafCwd } = hydrateTree(s.tree, allocId);
+      const color = s.color ? normalizeAccent(s.color) : null;
       const title =
         s.customTitle ??
         (firstLeafCwd ? basename(firstLeafCwd) : s.blocks ? "blocks" : "shell");
@@ -163,6 +167,8 @@ function hydrateTab(
         activeLeafId,
         ...(s.blocks && { blocks: true }),
         ...(s.customTitle !== undefined && { customTitle: s.customTitle }),
+        // Restored from disk, so it is untrusted input rather than a value we wrote.
+        ...(color !== null && { color }),
       } satisfies TerminalTab;
     }
     case "editor":

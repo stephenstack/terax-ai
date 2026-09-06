@@ -48,6 +48,8 @@ export type TerminalTab = TabBase & {
   private?: boolean;
   /** User-set label that overrides the cwd-derived name. Survives cd. */
   customTitle?: string;
+  /** Opt-in accent, a palette entry or a hex colour. Undefined = theme default. */
+  color?: string;
   /** Remote profile id when this tab holds SSH sessions rather than local shells. */
   remoteId?: string;
 };
@@ -145,6 +147,8 @@ export type TabPatch = Partial<{
   url: string;
   /** Empty string resets a terminal tab to its cwd-derived name. */
   customTitle: string;
+  /** Empty string clears a terminal tab's accent. */
+  color: string;
   overrideLanguage: string | null;
 }>;
 
@@ -1197,6 +1201,9 @@ export function useTabs(initial?: Partial<TerminalTab>) {
             ...(patch.customTitle !== undefined && {
               customTitle:
                 patch.customTitle === "" ? undefined : patch.customTitle,
+            }),
+            ...(patch.color !== undefined && {
+              color: patch.color === "" ? undefined : patch.color,
             }),
           };
         }

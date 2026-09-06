@@ -3,6 +3,9 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -13,6 +16,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  ACCENT_COLORS,
+  ACCENT_NAMES,
+  normalizeAccent,
+} from "@/lib/accentColors";
 import { cn } from "@/lib/utils";
 import { AgentIcon } from "@/modules/agents/lib/agentIcon";
 import type { AgentLaunchRequest } from "@/modules/agents/lib/launcher";
@@ -39,6 +47,7 @@ import {
   Globe02Icon,
   IncognitoIcon,
   Message02Icon,
+  PaintBoardIcon,
   PencilEdit02Icon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
@@ -75,6 +84,8 @@ type Props = {
   onPin: (id: number) => void;
   /** Set a terminal tab's custom label; empty string resets to default. */
   onRename: (id: number, title: string) => void;
+  /** Set a terminal tab's accent; empty string clears it. */
+  onRecolor: (id: number, color: string) => void;
   /** Move a dragged tab to a new position (insertion gap index 0..tabs.length). */
   onReorder: (fromId: number, toGapIndex: number) => void;
   onOverrideLanguage?: (id: number, lang: string | null) => void;
@@ -97,6 +108,7 @@ export function TabBar({
   onCloseOtherTabs,
   onPin,
   onRename,
+  onRecolor,
   onReorder,
   onOverrideLanguage,
   compact,
@@ -357,6 +369,16 @@ export function TabBar({
                         : "ps-2! pe-1!",
                   )}
                 >
+                  {t.kind === "terminal" && t.color && (
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute inset-x-1.5 bottom-0.5 h-0.5 rounded-full"
+                      style={{
+                        background: t.color,
+                        opacity: isActive ? 1 : 0.6,
+                      }}
+                    />
+                  )}
                   <span
                     className={cn(
                       "flex min-w-0 items-center gap-1.5",
@@ -528,6 +550,22 @@ export function TabBar({
                           />
                           <span className="flex-1">Rename</span>
                         </ContextMenuItem>
+                        <ContextMenuSub>
+                          <ContextMenuSubTrigger className="gap-2 rounded-xl px-2.5 py-1.5 text-[13px]">
+                            <HugeiconsIcon
+                              icon={PaintBoardIcon}
+                              size={13}
+                              strokeWidth={1.75}
+                            />
+                            <span className="flex-1">Color</span>
+                          </ContextMenuSubTrigger>
+                          <ContextMenuSubContent className="p-2">
+                            <TabColorPicker
+                              current={t.color}
+                              onPick={(value) => onRecolor(t.id, value)}
+                            />
+                          </ContextMenuSubContent>
+                        </ContextMenuSub>
                         {tabs.length > 1 && (
                           <>
                             <ContextMenuSeparator />
@@ -729,6 +767,79 @@ export function TabIcon({ tab }: { tab: Tab }) {
       strokeWidth={2}
       className="shrink-0"
     />
+  );
+}
+
+function TabColorPicker({
+  current,
+  onPick,
+}: {
+  current: string | undefined;
+  onPick: (value: string) => void;
+}) {
+  const [hex, setHex] = useState(current?.startsWith("#") ? current : "");
+  const custom = normalizeAccent(hex);
+
+  return (
+    <div className="flex w-44 flex-col gap-2">
+      <div className="grid grid-cols-4 gap-1.5">
+        {ACCENT_COLORS.map((c, i) => (
+          <button
+            key={c}
+            type="button"
+            aria-label={ACCENT_NAMES[i]}
+            aria-pressed={current === c}
+            onClick={() => onPick(c)}
+            className={cn(
+              "flex h-6 items-center justify-center rounded-md ring-offset-1 ring-offset-popover transition",
+              current === c && "ring-2 ring-ring",
+            )}
+            style={{ background: c }}
+          >
+            {current === c && (
+              <HugeiconsIcon
+                icon={Tick02Icon}
+                size={12}
+                strokeWidth={2.5}
+                className="text-white"
+              />
+            )}
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span
+          aria-hidden
+          className="size-5 shrink-0 rounded-md border border-border"
+          style={custom ? { background: custom } : undefined}
+        />
+        <input
+          value={hex}
+          onChange={(e) => setHex(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            if (custom) onPick(custom);
+          }}
+          placeholder="#1a2b3c"
+          aria-label="Custom colour as hex"
+          aria-invalid={hex.trim() !== "" && !custom}
+          spellCheck={false}
+          className={cn(
+            "h-6 w-full min-w-0 rounded-md border border-border bg-transparent px-1.5 font-mono text-[11px] outline-none focus:border-ring",
+            hex.trim() !== "" && !custom && "border-destructive",
+          )}
+        />
+      </div>
+      <button
+        type="button"
+        onClick={() => onPick("")}
+        disabled={!current}
+        className="h-6 rounded-md text-[11.5px] text-muted-foreground transition hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+      >
+        Clear color
+      </button>
+    </div>
   );
 }
 

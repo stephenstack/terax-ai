@@ -9,6 +9,7 @@ import { consumeLaunchFiles, getLaunchDir } from "@/lib/launchDir";
 import { quoteShellArg } from "@/lib/shellQuote";
 import { usePresence } from "@/lib/usePresence";
 import { useZoom } from "@/lib/useZoom";
+import { normalizeAccent } from "@/lib/accentColors";
 import { isMarkdownPath } from "@/lib/utils";
 import {
   type AgentLaunchRequest,
@@ -1203,6 +1204,12 @@ export default function App() {
     [updateTab],
   );
 
+  const handleRecolorTab = useCallback(
+    (id: number, color: string) =>
+      updateTab(id, { color: color ? (normalizeAccent(color) ?? "") : "" }),
+    [updateTab],
+  );
+
   const searchTarget = useMemo<SearchTarget>(() => {
     if (isTerminalTab && activeLeafId !== null && activeSearchAddon)
       return {
@@ -1483,6 +1490,7 @@ export default function App() {
               onCloseOtherTabs={handleCloseOtherTabs}
               onPin={pinTab}
               onRename={handleRenameTab}
+          onRecolor={handleRecolorTab}
               onReorder={reorderTabByGap}
               onToggleSidebar={toggleSidebar}
               onOpenCommandPalette={() => openCommandPalette("commands")}
