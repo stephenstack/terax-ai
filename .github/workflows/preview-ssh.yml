@@ -133,12 +133,29 @@ jobs:
 
       # Exit codes are checked by hand: the pwsh shell only propagates the last
       # command's status, so a failure in any earlier line would pass silently.
+      #
+      # The job sets VITE_TERAX_CHANNEL=preview, so one run of the channel suite
+      # could only ever prove the preview branch. It runs twice: once with the
+      # variable removed, proving an unset channel still defaults to stable with
+      # the updater on, and once as preview. The suite names its describe block
+      # after the active channel, so the log says which branch each run covered.
       - name: Guard the updater disablement and credential isolation
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+
+          if (Test-Path Env:VITE_TERAX_CHANNEL) { Remove-Item Env:VITE_TERAX_CHANNEL }
           pnpm exec vitest run src/lib/channel.test.ts
-          if ($LASTEXITCODE -ne 0) { throw "frontend channel tests failed" }
+          if ($LASTEXITCODE -ne 0) {
+            throw "channel tests failed with VITE_TERAX_CHANNEL unset (stable default)"
+          }
+
+          $env:VITE_TERAX_CHANNEL = "preview"
+          pnpm exec vitest run src/lib/channel.test.ts
+          if ($LASTEXITCODE -ne 0) {
+            throw "channel tests failed with VITE_TERAX_CHANNEL=preview"
+          }
+
           Push-Location src-tauri
           cargo test --locked --test preview_config
           if ($LASTEXITCODE -ne 0) { throw "preview config tests failed" }
@@ -148,6 +165,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "keychain isolation tests failed" }
           Pop-Location
 
+      # rust-cache restores ./src-tauri/target, and Tauri's bundle/ directory is
+      # not part of the cargo layout it prunes. A previous preview version's
+      # installer surviving in there would sit alongside this run's, so the
+      # directory is emptied before the build rather than after.
+      - name: Clear any restored bundle output
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bundle = "src-tauri/target/release/bundle"
+          if (Test-Path $bundle) {
+            Remove-Item $bundle -Recurse -Force
+            Write-Host "removed stale $bundle"
+          } else {
+            Write-Host "no stale bundle directory"
+          }
+
       - name: Build unsigned preview installer
         run: pnpm tauri build --config src-tauri/tauri.preview.conf.json
 
@@ -156,9 +189,12 @@ jobs:
       # assumed. The binary is also searched for the production updater
       # endpoint and public key: the preview config strips `plugins.updater`,
       # and Tauri embeds the merged config in the executable, so neither string
-      # can survive into a correct preview build. The stable keychain service
-      # name must be absent for the same reason.
-      - name: Assert the build carries no updater and no stable keychain name
+      # can survive into a correct preview build. The preview keychain service
+      # name must be present. Note the stable name is deliberately NOT asserted
+      # absent: `secrets::scope_service` has to compare against it in order to
+      # remap it, so it appears as a comparison operand in every build. The
+      # tests in modules::secrets are what prove the behaviour.
+      - name: Assert the build carries no updater and its own keychain namespace
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -166,8 +202,10 @@ jobs:
           $stray = Get-ChildItem $bundle -Recurse -Include *.sig, latest.json -ErrorAction SilentlyContinue
           if ($stray) { throw "preview build produced updater artifacts: $($stray.FullName -join ', ')" }
 
-          $exe = Get-ChildItem "$bundle/nsis" -Filter *.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $exe) { throw "no NSIS installer produced" }
+          $found = @(Get-ChildItem "$bundle/nsis" -Filter "*_$($env:PREVIEW_VERSION)_*.exe" -ErrorAction SilentlyContinue)
+          if ($found.Count -ne 1) {
+            throw "expected exactly one installer for $env:PREVIEW_VERSION, found $($found.Count): $($found.Name -join ', ')"
+          }
 
           $binary = Get-ChildItem src-tauri/target/release -Filter terax.exe | Select-Object -First 1
           if (-not $binary) { throw "no terax.exe produced" }
@@ -193,7 +231,11 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $exe = Get-ChildItem "src-tauri/target/release/bundle/nsis" -Filter *.exe | Select-Object -First 1
+          $found = @(Get-ChildItem "src-tauri/target/release/bundle/nsis" -Filter "*_$($env:PREVIEW_VERSION)_*.exe")
+          if ($found.Count -ne 1) {
+            throw "expected exactly one installer for $env:PREVIEW_VERSION, found $($found.Count): $($found.Name -join ', ')"
+          }
+          $exe = $found[0]
           New-Item -ItemType Directory -Path dist-preview -Force | Out-Null
           $name = "Terax-SSH-Preview_${env:PREVIEW_VERSION}_x64-setup.exe"
           Copy-Item $exe.FullName "dist-preview/$name"

@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 const STABLE_IDENTIFIER: &str = "app.crynta.terax";
 const PREVIEW_IDENTIFIER: &str = "io.github.stephenstack.terax.sshpreview";
-const PREVIEW_VERSION: &str = "0.8.6-ssh.1";
+const PREVIEW_VERSION: &str = "0.8.6-ssh.2";
 
 /// RFC 7396. A `null` in the patch deletes the key; objects merge recursively;
 /// every other value, arrays included, replaces wholesale. Same semantics as

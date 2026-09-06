@@ -12,8 +12,8 @@ installs beside a stable Terax rather than replacing it:
 | --- | --- |
 | Application name | Terax SSH Preview |
 | Identifier | `io.github.stephenstack.terax.sshpreview` |
-| Version | `0.8.6-ssh.1` |
-| Git tag | `preview-v0.8.6-ssh.1` |
+| Version | `0.8.6-ssh.2` |
+| Git tag | `preview-v0.8.6-ssh.2` |
 | Platform | Windows x64 only |
 | Installer | NSIS `.exe`, per-user (no administrator rights) |
 | Code signing | none |
@@ -59,7 +59,7 @@ machines:
 
 ## Installation
 
-1. Download `Terax-SSH-Preview_0.8.6-ssh.1_x64-setup.exe` and the matching
+1. Download `Terax-SSH-Preview_0.8.6-ssh.2_x64-setup.exe` and the matching
    `.sha256` file from the release page.
 2. Verify the checksum before running anything. See below.
 3. Run the installer. It installs per-user under
@@ -75,33 +75,33 @@ leaves a stable Terax install untouched.
 ## Verifying the download
 
 The expected SHA256 is printed in the release notes and stored alongside the
-installer as `Terax-SSH-Preview_0.8.6-ssh.1_x64-setup.exe.sha256`.
+installer as `Terax-SSH-Preview_0.8.6-ssh.2_x64-setup.exe.sha256`.
 
 PowerShell:
 
 ```powershell
-Get-FileHash .\Terax-SSH-Preview_0.8.6-ssh.1_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Terax-SSH-Preview_0.8.6-ssh.2_x64-setup.exe -Algorithm SHA256
 ```
 
 Compare the printed `Hash` against the value in the release notes. Casing does
 not matter. To compare automatically instead of by eye:
 
 ```powershell
-$expected = (Get-Content .\Terax-SSH-Preview_0.8.6-ssh.1_x64-setup.exe.sha256).Split(" ")[0]
-$actual = (Get-FileHash .\Terax-SSH-Preview_0.8.6-ssh.1_x64-setup.exe -Algorithm SHA256).Hash
+$expected = (Get-Content .\Terax-SSH-Preview_0.8.6-ssh.2_x64-setup.exe.sha256).Split(" ")[0]
+$actual = (Get-FileHash .\Terax-SSH-Preview_0.8.6-ssh.2_x64-setup.exe -Algorithm SHA256).Hash
 if ($actual -ieq $expected) { "OK" } else { "MISMATCH - do not run this file" }
 ```
 
 Command Prompt, without PowerShell:
 
 ```bat
-certutil -hashfile Terax-SSH-Preview_0.8.6-ssh.1_x64-setup.exe SHA256
+certutil -hashfile Terax-SSH-Preview_0.8.6-ssh.2_x64-setup.exe SHA256
 ```
 
 Git Bash or WSL, verifying against the published file directly:
 
 ```bash
-sha256sum -c Terax-SSH-Preview_0.8.6-ssh.1_x64-setup.exe.sha256
+sha256sum -c Terax-SSH-Preview_0.8.6-ssh.2_x64-setup.exe.sha256
 ```
 
 If the hashes do not match, delete the file and do not run it.
@@ -266,7 +266,7 @@ release.
 
 Open an issue at <https://github.com/stephenstack/terax-ai/issues> and include:
 
-1. The exact version string from Settings and then About (`0.8.6-ssh.1`) and the
+1. The exact version string from Settings and then About (`0.8.6-ssh.2`) and the
    identifier shown there.
 2. Windows version (`winver`).
 3. Remote server operating system and SSH server version
