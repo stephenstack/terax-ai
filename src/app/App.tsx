@@ -793,7 +793,10 @@ export default function App() {
             });
             return;
           }
-          await switchWorkspace({
+          // Adopted, not switched: switching tears down sessions and resets
+          // the tabs, which would close the very terminal this file was found
+          // from. The env is all the editor needs.
+          await adoptWorkspaceEnv({
             kind: "ssh",
             conn: opened.conn,
             profileId: opened.profileId,
@@ -812,7 +815,7 @@ export default function App() {
         handleOpenFile(path, true);
       })();
     },
-    [switchWorkspace, handleOpenFile],
+    [adoptWorkspaceEnv, handleOpenFile],
   );
 
   const openLaunchFiles = useCallback(
