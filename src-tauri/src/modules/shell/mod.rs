@@ -25,6 +25,21 @@ const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const MAX_TIMEOUT_SECS: u64 = 300;
 const MAX_OUTPUT_BYTES: usize = 256 * 1024;
 
+/// Said plainly so the agent reports it rather than retrying forever.
+const REMOTE_UNSUPPORTED: &str =
+    "not available on a remote workspace; use run_command, which runs on the host";
+
+/// Both the agent's session shell and its background processes hold local
+/// state: a working directory carried across calls, a pid and a log buffer.
+/// Neither survives being pointed at another machine, and falling through to
+/// the local shell would run them on the wrong one.
+fn local_only(workspace: &WorkspaceEnv) -> Result<(), String> {
+    if workspace.remote_conn().is_some() {
+        return Err(REMOTE_UNSUPPORTED.to_owned());
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 pub struct CommandOutput {
     pub stdout: String,
@@ -52,6 +67,19 @@ pub async fn shell_run_command(
     }
 
     let workspace = WorkspaceEnv::from_option(workspace);
+
+    // A remote workspace has no local path to spawn in. Without this the
+    // command falls through to the local shell and the agent runs on the
+    // user's own machine while believing it is on the host.
+    if let Some(conn) = workspace.remote_conn() {
+        let dur = Duration::from_secs(
+            timeout_secs
+                .unwrap_or(DEFAULT_TIMEOUT_SECS)
+                .clamp(1, MAX_TIMEOUT_SECS),
+        );
+        return run_remote(conn, trimmed, cwd, dur).await;
+    }
+
     authorize_spawn_cwd(&registry, cwd.as_deref(), &workspace)?;
     let cwd_path = cwd
         .as_deref()
@@ -73,6 +101,42 @@ pub async fn shell_run_command(
     });
 
     rx.recv().map_err(|e| e.to_string())?
+}
+
+/// Run the command on the far side of an SSH connection, confined to the roots
+/// that connection has been given, exactly as the local path is confined to the
+/// authorized workspace.
+async fn run_remote(
+    conn: u32,
+    command: String,
+    cwd: Option<String>,
+    dur: Duration,
+) -> Result<CommandOutput, String> {
+    use crate::modules::remote;
+
+    let state = remote::global().ok_or_else(|| "remote state unavailable".to_owned())?;
+    let connection = state.require(conn)?;
+
+    let full = match cwd.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(dir) => {
+            let resolved = remote::resolve(&connection, dir);
+            connection.authorize_mutation(&resolved)?;
+            format!("cd {} && {command}", remote::path::quote(&resolved))
+        }
+        None => command,
+    };
+
+    let out = tokio::time::timeout(dur, connection.exec(&full))
+        .await
+        .map_err(|_| "the remote command timed out".to_owned())??;
+
+    Ok(CommandOutput {
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        exit_code: Some(out.code),
+        timed_out: false,
+        truncated: out.truncated,
+    })
 }
 
 pub(crate) fn run_blocking_inner(
@@ -176,6 +240,7 @@ pub fn shell_session_open(
     workspace: Option<WorkspaceEnv>,
 ) -> Result<u32, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
+    local_only(&workspace)?;
     authorize_spawn_cwd(&registry, cwd.as_deref(), &workspace)?;
     let initial = match cwd.as_deref().filter(|s| !s.is_empty()) {
         Some(c) => c.to_string(),
@@ -239,6 +304,7 @@ pub fn shell_bg_spawn(
     workspace: Option<WorkspaceEnv>,
 ) -> Result<u32, String> {
     let workspace = WorkspaceEnv::from_option(workspace);
+    local_only(&workspace)?;
     authorize_spawn_cwd(&registry, cwd.as_deref(), &workspace)?;
     let proc = background::spawn(command, cwd, workspace)?;
     let id = state.next_bg_id.fetch_add(1, Ordering::Relaxed);
@@ -398,6 +464,15 @@ mod tests {
         let out = run(&format!("head -c {big} /dev/zero"), 10);
         assert!(out.truncated);
         assert!(out.stdout.len() <= MAX_OUTPUT_BYTES);
+    }
+
+    #[test]
+    fn local_only_refuses_a_remote_workspace() {
+        // Falling through would run the agent's command on the user's own
+        // machine while it believed it was on the host.
+        let err = local_only(&WorkspaceEnv::Ssh { conn: 7 }).unwrap_err();
+        assert!(err.contains("remote workspace"), "{err}");
+        assert!(local_only(&WorkspaceEnv::Local).is_ok());
     }
 
     #[test]
