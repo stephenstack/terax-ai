@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { fileKind, remoteFileIconUrl, remoteFolderIconUrl } from "./icons";
+import {
+  fileKind,
+  iconSetsVersion,
+  loadIconSet,
+  remoteFileIconUrl,
+  remoteFolderIconUrl,
+  subscribeIconSets,
+} from "./icons";
 
 describe("fileKind", () => {
   it("matches a whole file name before falling back to its extension", () => {
@@ -36,5 +43,27 @@ describe("icon urls", () => {
   it("returns null while a lazily loaded set is not in memory", () => {
     // Nothing has selected it, so it has never been fetched.
     expect(remoteFileIconUrl("vscode", "index.ts")).toBeNull();
+  });
+});
+
+describe("loading a set", () => {
+  it("changes the snapshot so a render is not skipped", async () => {
+    const before = iconSetsVersion();
+    expect(remoteFileIconUrl("material", "index.ts")).toBeNull();
+
+    const arrived = new Promise<void>((resolve) => {
+      const stop = subscribeIconSets(() => {
+        stop();
+        resolve();
+      });
+    });
+    loadIconSet("material");
+    await arrived;
+
+    // Equal snapshots would let React skip the render that draws these.
+    expect(iconSetsVersion()).toBeGreaterThan(before);
+    expect(remoteFileIconUrl("material", "index.ts")).toMatch(
+      /^data:image\/svg\+xml/,
+    );
   });
 });

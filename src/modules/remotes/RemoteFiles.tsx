@@ -35,6 +35,7 @@ import {
   useRemoteBrowserStore,
 } from "./lib/browser";
 import {
+  iconSetsVersion,
   loadIconSet,
   remoteFileIconUrl,
   remoteFolderIconUrl,
@@ -60,7 +61,7 @@ export function RemoteFiles({
   useEffect(() => loadIconSet(iconSet), [iconSet]);
   // The URLs change the moment a set finishes arriving, so the rows have to be
   // told; the set itself is module state rather than a store.
-  useSyncExternalStore(subscribeIconSets, () => iconSet);
+  useSyncExternalStore(subscribeIconSets, iconSetsVersion);
 
   const up = parentRemote(cwd);
 

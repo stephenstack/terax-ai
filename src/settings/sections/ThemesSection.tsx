@@ -29,6 +29,7 @@ import {
   setWindowVibrancy,
 } from "@/modules/settings/store";
 import {
+  iconSetsVersion,
   loadIconSet,
   remoteFileIconUrl,
   remoteFolderIconUrl,
@@ -483,19 +484,16 @@ function IconSetCard({
   selected: boolean;
   onSelect: () => void;
 }) {
-  // Only the chosen set is in memory; a card previews the one it offers, so
-  // hovering it is what pulls the set down.
-  useEffect(() => {
-    if (selected) loadIconSet(id);
-  }, [id, selected]);
-  useSyncExternalStore(subscribeIconSets, () => id);
+  // A picker showing grey boxes is no picker, so every card pulls its own set
+  // down. Only this screen does; the app still loads nothing it has not been
+  // told to use.
+  useEffect(() => loadIconSet(id), [id]);
+  useSyncExternalStore(subscribeIconSets, iconSetsVersion);
 
   return (
     <button
       type="button"
       onClick={onSelect}
-      onPointerEnter={() => loadIconSet(id)}
-      onFocus={() => loadIconSet(id)}
       className={cn(
         "flex flex-col gap-2 rounded-lg border p-2.5 text-left transition",
         selected

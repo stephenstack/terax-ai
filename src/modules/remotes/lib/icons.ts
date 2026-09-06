@@ -47,6 +47,7 @@ const folderNames = folderIconsMod.folderNames as Record<string, string>;
 const loaded = new Map<RemoteIconSet, IconifySet>();
 const pending = new Map<RemoteIconSet, Promise<void>>();
 const listeners = new Set<() => void>();
+let version = 0;
 
 // Catppuccin is already in the bundle for the explorer, so importing it here
 // costs nothing. The others are fetched only if someone selects them.
@@ -63,6 +64,7 @@ export function loadIconSet(set: RemoteIconSet): void {
     load
       .then((mod) => {
         loaded.set(set, mod.default as unknown as IconifySet);
+        version += 1;
         for (const fn of listeners) fn();
       })
       .catch(() => undefined)
@@ -76,6 +78,15 @@ export function loadIconSet(set: RemoteIconSet): void {
 export function subscribeIconSets(fn: () => void): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);
+}
+
+/**
+ * Snapshot for useSyncExternalStore. It has to change when a set arrives, or
+ * React compares two equal snapshots and skips the render that would draw the
+ * icons that just became available.
+ */
+export function iconSetsVersion(): number {
+  return version;
 }
 
 const urlCache = new Map<string, string>();
