@@ -10,6 +10,11 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Input } from "@/components/ui/input";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
 import { cn } from "@/lib/utils";
 import {
   ArrowDown01Icon,
@@ -20,11 +25,14 @@ import {
   FolderAddIcon,
   PencilEdit02Icon,
   PlusSignIcon,
+  Cancel01Icon,
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HostDialog } from "./HostDialog";
+import { RemoteFiles } from "./RemoteFiles";
+import { useRemoteBrowserStore } from "./lib/browser";
 import { ImportConfigDialog } from "./ImportConfigDialog";
 import { emptyProfile, useRemotesStore } from "./lib/store";
 import { buildRemoteTree, profileAddress, profileLabel, uniqueName } from "./lib/tree";
@@ -41,6 +49,8 @@ type Props = {
   activeWorkspaceId: string | null;
   /** Connection id backing that workspace, which forwards ride on. */
   activeWorkspaceConn: number | null;
+  /** Send a line to the active terminal, used by the browser's "cd here". */
+  onRunInTerminal?: (line: string) => void;
 };
 
 export function RemotesPanel({
@@ -48,7 +58,13 @@ export function RemotesPanel({
   onOpenWorkspace,
   activeWorkspaceId,
   activeWorkspaceConn,
+  onRunInTerminal,
 }: Props) {
+  const browserConn = useRemoteBrowserStore((s) => s.conn);
+  const browserProfileId = useRemoteBrowserStore((s) => s.profileId);
+  const browserHost = useRemotesStore(
+    (s) => s.profiles.find((p) => p.id === browserProfileId)?.name,
+  );
   const activeForwards = useTunnelStore((s) => s.active);
   const refreshForwards = useTunnelStore((s) => s.refresh);
 
@@ -213,7 +229,9 @@ export function RemotesPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+      <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
+      <ResizablePanel id="remotes-hosts" minSize="20%">
+      <div className="h-full overflow-y-auto pb-2">
         {!hydrated ? null : profiles.length === 0 ? (
           <EmptyState
             onAddHost={() => setEditing(emptyProfile())}
@@ -261,6 +279,36 @@ export function RemotesPanel({
           </div>
         ) : null}
       </div>
+      </ResizablePanel>
+
+      <ResizableHandle className="bg-border/60" />
+
+      <ResizablePanel
+        id="remotes-files"
+       
+        minSize="15%"
+        defaultSize="40%"
+        collapsible
+      >
+        <div className="flex h-full min-h-0 flex-col border-t border-border/40">
+          <div className="flex shrink-0 items-center justify-between gap-1 px-2.5 pb-1 pt-1.5">
+            <span className="truncate text-[10.5px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/85">
+              {browserHost ? `Files on ${browserHost}` : "Files"}
+            </span>
+            {browserConn !== null ? (
+              <IconAction
+                icon={Cancel01Icon}
+                label="Close the file browser"
+                onClick={() => void useRemoteBrowserStore.getState().close()}
+              />
+            ) : null}
+          </div>
+          <div className="min-h-0 flex-1">
+            <RemoteFiles onRunInTerminal={onRunInTerminal} />
+          </div>
+        </div>
+      </ResizablePanel>
+      </ResizablePanelGroup>
 
       {editing ? (
         <HostDialog

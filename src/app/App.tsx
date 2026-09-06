@@ -63,6 +63,7 @@ import {
   profileLabel,
   RemotePrompts,
   RemotesPanel,
+  useRemoteBrowserStore,
   useRemotesStore,
   useRemoteWorkspaceStore,
   type RemoteBackground,
@@ -703,6 +704,9 @@ export default function App() {
   const connectToRemote = useCallback(
     (profile: RemoteProfile) => {
       newRemoteTab(profile.id, profile.name.trim() || profile.host);
+      // The browser rides its own SFTP connection, so opening a terminal is
+      // what arms it rather than the terminal session itself.
+      void useRemoteBrowserStore.getState().open(profile);
     },
     [newRemoteTab],
   );
@@ -1120,6 +1124,18 @@ export default function App() {
   );
 
   useGlobalShortcuts(shortcutHandlers, { isDisabled: shortcutsDisabled });
+
+  const runInActiveTerminal = useCallback(
+    (line: string) => {
+      if (activeTab?.kind !== "terminal") return;
+      const handle = terminalRefs.current.get(activeTab.activeLeafId);
+      if (!handle) return;
+      // CR, not LF: PowerShell on Windows will not accept the latter.
+      handle.write(`${line}\r`);
+      handle.focus();
+    },
+    [activeTab],
+  );
 
   const registerTerminalHandle = useCallback(
     (leafId: number, h: TerminalPaneHandle | null) => {
@@ -1552,6 +1568,7 @@ export default function App() {
                     >
                       {sidebarView === "remotes" ? (
                         <RemotesPanel
+                          onRunInTerminal={runInActiveTerminal}
                           onConnect={connectToRemote}
                           onOpenWorkspace={openRemoteWorkspace}
                           activeWorkspaceId={activeRemoteWorkspace?.profileId ?? null}
