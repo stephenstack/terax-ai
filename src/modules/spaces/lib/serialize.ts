@@ -59,7 +59,10 @@ function serializeNode(node: PaneNode, activeLeafId: number): SerializedNode {
 export function isSerializableTab(tab: Tab): boolean {
   switch (tab.kind) {
     case "terminal":
-      return !tab.private;
+      // A remote tab is not restorable: its panes are SSH sessions that died
+      // with the app, and reviving the tab would only reconnect on its own,
+      // prompting for host keys and passwords before the window is even shown.
+      return !tab.private && !tab.remoteId;
     case "editor":
     case "preview":
     case "markdown":

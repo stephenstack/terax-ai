@@ -111,6 +111,11 @@ describe("hydrateTabs", () => {
     expect(restored.cwd).toBe("/b");
   });
 
+  it("drops remote terminals, which cannot survive the process", () => {
+    expect(serializeTabs([term({ remoteId: "h1" })])).toHaveLength(0);
+    expect(serializeTabs([term({})])).toHaveLength(1);
+  });
+
   it("round-trips a tab accent", () => {
     const [restored] = hydrateTabs(
       serializeTabs([term({ color: "#1a2b3c" })]),
