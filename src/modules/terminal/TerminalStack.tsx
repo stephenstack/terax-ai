@@ -106,6 +106,7 @@ export function TerminalStack({
               pointerEvents: tabVisible ? "auto" : "none",
             }}
             aria-hidden={!tabVisible}
+            data-terax-bg={bg ? "on" : undefined}
           >
             {bg ? (
               <BackgroundImageLayer

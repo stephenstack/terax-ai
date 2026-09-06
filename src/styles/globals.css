@@ -294,6 +294,20 @@ html[data-chrome="borderless"] #root {
   outline: none !important;
 }
 
+/* A terminal with its own background image paints nothing of its own, so the
+ * image behind the canvas reads through. xterm hardcodes
+ * `.xterm-viewport { background-color: #000 }` in its stylesheet, which is the
+ * black that otherwise covers the image, so this has to out-rank both that
+ * rule and the inline colour xterm writes from the theme. */
+[data-terax-bg="on"] .xterm,
+[data-terax-bg="on"] .xterm .xterm-viewport,
+[data-terax-bg="on"] .xterm-viewport,
+[data-terax-bg="on"] .xterm .xterm-screen,
+[data-terax-bg="on"] .xterm-screen,
+[data-terax-bg="on"] .xterm .xterm-rows {
+  background-color: transparent !important;
+}
+
 .cm-editor,
 .cm-scroller {
   scrollbar-width: none !important;
