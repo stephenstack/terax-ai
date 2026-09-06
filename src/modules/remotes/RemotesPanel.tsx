@@ -29,9 +29,17 @@ import {
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { HostDialog } from "./HostDialog";
 import { RemoteFiles } from "./RemoteFiles";
+import { RemoteGit } from "./RemoteGit";
 import { useRemoteBrowserStore } from "./lib/browser";
 import { ImportConfigDialog } from "./ImportConfigDialog";
 import { emptyProfile, useRemotesStore } from "./lib/store";
@@ -64,6 +72,7 @@ export function RemotesPanel({
   const browserProfileId = useRemoteBrowserStore((s) => s.profileId);
   const browserConnecting = useRemoteBrowserStore((s) => s.connecting);
   const [filesExpanded, setFilesExpanded] = useState(true);
+  const [gitExpanded, setGitExpanded] = useState(false);
   const browserHost = useRemotesStore(
     (s) => s.profiles.find((p) => p.id === browserProfileId)?.name,
   );
@@ -234,16 +243,40 @@ export function RemotesPanel({
       </div>
 
       <PanelBody
-        filesOpen={showFiles}
-        expanded={filesExpanded}
-        files={
-          <FilesSection
-            host={browserHost}
-            expanded={filesExpanded}
-            onToggle={() => setFilesExpanded((v) => !v)}
-            onClose={() => void useRemoteBrowserStore.getState().close()}
-            onRunInTerminal={onRunInTerminal}
-          />
+        sections={
+          showFiles
+            ? [
+                {
+                  id: "remotes-files",
+                  expanded: filesExpanded,
+                  node: (
+                    <Section
+                      title={browserHost ? `Files on ${browserHost}` : "Files"}
+                      expanded={filesExpanded}
+                      onToggle={() => setFilesExpanded((v) => !v)}
+                      onClose={() =>
+                        void useRemoteBrowserStore.getState().close()
+                      }
+                    >
+                      <RemoteFiles onRunInTerminal={onRunInTerminal} />
+                    </Section>
+                  ),
+                },
+                {
+                  id: "remotes-git",
+                  expanded: gitExpanded,
+                  node: (
+                    <Section
+                      title="Git"
+                      expanded={gitExpanded}
+                      onToggle={() => setGitExpanded((v) => !v)}
+                    >
+                      <RemoteGit />
+                    </Section>
+                  ),
+                },
+              ]
+            : []
         }
       >
       <div className="h-full overflow-y-auto pb-2">
@@ -375,53 +408,72 @@ type HostDragProps = {
  * it. Collapsing hides only the listing: the heading stays put, because the
  * section is dismissed with its close button rather than by shrinking it away.
  */
+type Section = { id: string; expanded: boolean; node: React.ReactNode };
+
+/**
+ * The hosts list, with any open sections taking an adjustable share beneath
+ * it. A collapsed section keeps its heading but leaves the group, so the
+ * remaining ones get the space rather than a row of zero-height panels.
+ */
 function PanelBody({
-  filesOpen,
-  expanded,
-  files,
+  sections,
   children,
 }: {
-  filesOpen: boolean;
-  expanded: boolean;
-  files: React.ReactNode;
+  sections: Section[];
   children: React.ReactNode;
 }) {
-  if (!filesOpen) {
-    return <div className="min-h-0 flex-1 overflow-y-auto pb-2">{children}</div>;
-  }
-  if (!expanded) {
+  const hosts = (
+    <div className="h-full overflow-y-auto pb-2">{children}</div>
+  );
+  const expanded = sections.filter((s) => s.expanded);
+  const collapsed = sections.filter((s) => !s.expanded);
+
+  if (expanded.length === 0) {
     return (
       <>
         <div className="min-h-0 flex-1 overflow-y-auto pb-2">{children}</div>
-        {files}
+        {collapsed.map((s) => (
+          <Fragment key={s.id}>{s.node}</Fragment>
+        ))}
       </>
     );
   }
+
   return (
-    <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
-      <ResizablePanel id="remotes-hosts" minSize="20%">
-        {children}
-      </ResizablePanel>
-      <ResizableHandle className="bg-border/60" />
-      <ResizablePanel id="remotes-files" minSize="15%" defaultSize="45%">
-        {files}
-      </ResizablePanel>
-    </ResizablePanelGroup>
+    <>
+      <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
+        <ResizablePanel id="remotes-hosts" minSize="15%">
+          {hosts}
+        </ResizablePanel>
+        {expanded.map((s) => (
+          <Fragment key={s.id}>
+            <ResizableHandle className="bg-border/60" />
+            <ResizablePanel id={s.id} minSize="15%">
+              {s.node}
+            </ResizablePanel>
+          </Fragment>
+        ))}
+      </ResizablePanelGroup>
+      {collapsed.map((s) => (
+        <Fragment key={s.id}>{s.node}</Fragment>
+      ))}
+    </>
   );
 }
 
-function FilesSection({
-  host,
+/** Heading, collapse chevron and close button shared by the lower sections. */
+function Section({
+  title,
   expanded,
   onToggle,
   onClose,
-  onRunInTerminal,
+  children,
 }: {
-  host: string | undefined;
+  title: string;
   expanded: boolean;
   onToggle: () => void;
-  onClose: () => void;
-  onRunInTerminal?: (line: string) => void;
+  onClose?: () => void;
+  children: React.ReactNode;
 }) {
   return (
     <div
@@ -444,20 +496,18 @@ function FilesSection({
             className="shrink-0 text-muted-foreground"
           />
           <span className="truncate text-[10.5px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/85">
-            {host ? `Files on ${host}` : "Files"}
+            {title}
           </span>
         </button>
-        <IconAction
-          icon={Cancel01Icon}
-          label="Close the file browser"
-          onClick={onClose}
-        />
+        {onClose ? (
+          <IconAction
+            icon={Cancel01Icon}
+            label="Close the file browser"
+            onClick={onClose}
+          />
+        ) : null}
       </div>
-      {expanded ? (
-        <div className="min-h-0 flex-1">
-          <RemoteFiles onRunInTerminal={onRunInTerminal} />
-        </div>
-      ) : null}
+      {expanded ? <div className="min-h-0 flex-1">{children}</div> : null}
     </div>
   );
 }
