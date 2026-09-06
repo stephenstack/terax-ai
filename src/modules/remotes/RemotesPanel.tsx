@@ -23,7 +23,7 @@ import {
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HostDialog } from "./HostDialog";
 import { ImportConfigDialog } from "./ImportConfigDialog";
 import { emptyProfile, useRemotesStore } from "./lib/store";
@@ -102,6 +102,91 @@ export function RemotesPanel({
     [profiles, groups, query],
   );
 
+  // Pointer-based rather than HTML5 drag: the window keeps Tauri's file-drop
+  // handler on for the explorer and terminal, which takes the webview's drop
+  // target on Windows and leaves in-page dragstart/drop dead. Window listeners
+  // rather than setPointerCapture, because capture retargets the compatibility
+  // mouse events and would break the row's own click and double-click.
+  const drag = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    id: string;
+    active: boolean;
+  } | null>(null);
+  const dropRef = useRef<string | null | undefined>(undefined);
+  const listeners = useRef<((e: PointerEvent) => void)[] | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropGroupId, setDropGroupId] = useState<string | null | undefined>(
+    undefined,
+  );
+
+  const detach = useCallback(() => {
+    const l = listeners.current;
+    if (!l) return;
+    window.removeEventListener("pointermove", l[0]);
+    window.removeEventListener("pointerup", l[1]);
+    window.removeEventListener("pointercancel", l[1]);
+    listeners.current = null;
+  }, []);
+
+  useEffect(() => detach, [detach]);
+
+  const onDragPointerDown = (e: React.PointerEvent, id: string) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("[data-no-drag]")) return;
+    detach();
+    drag.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      id,
+      active: false,
+    };
+
+    const move = (ev: PointerEvent) => {
+      const st = drag.current;
+      if (!st || st.pointerId !== ev.pointerId) return;
+      if (!st.active) {
+        if (Math.hypot(ev.clientX - st.startX, ev.clientY - st.startY) < 5)
+          return;
+        st.active = true;
+        setDraggingId(st.id);
+        document.body.style.userSelect = "none";
+      }
+      const hit = document
+        .elementFromPoint(ev.clientX, ev.clientY)
+        ?.closest("[data-drop='group']");
+      const raw = hit?.getAttribute("data-group-id");
+      const next = raw == null ? undefined : raw === "" ? null : raw;
+      dropRef.current = next;
+      setDropGroupId(next);
+    };
+
+    const up = () => {
+      const st = drag.current;
+      const target = dropRef.current;
+      if (st?.active && target !== undefined) {
+        const store = useRemotesStore.getState();
+        const moved = store.profiles.find((p) => p.id === st.id);
+        if (moved && moved.groupId !== target) {
+          void store.moveToGroup(st.id, target);
+        }
+      }
+      drag.current = null;
+      dropRef.current = undefined;
+      setDraggingId(null);
+      setDropGroupId(undefined);
+      document.body.style.userSelect = "";
+      detach();
+    };
+
+    listeners.current = [move, up];
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Header
@@ -146,6 +231,11 @@ export function RemotesPanel({
               rows={rows}
               groups={groups}
               allNames={profiles.map((p) => p.name)}
+              isDropTarget={
+                draggingId !== null && dropGroupId === (group?.id ?? null)
+              }
+              draggingId={draggingId}
+              onDragPointerDown={onDragPointerDown}
               onConnect={onConnect}
               onOpenWorkspace={onOpenWorkspace}
               activeWorkspaceId={activeWorkspaceId}
@@ -156,6 +246,20 @@ export function RemotesPanel({
             />
           ))
         )}
+        {draggingId !== null && tree.every(({ group }) => group !== null) ? (
+          // Every host is grouped, so the tree renders no ungrouped section and
+          // a drag would have nowhere to drop a host back out to.
+          <div
+            data-drop="group"
+            data-group-id=""
+            className={cn(
+              "mx-2 mt-1 rounded-md border border-dashed border-border px-2.5 py-2 text-[10.5px] uppercase tracking-[0.12em] text-muted-foreground/85 transition-colors",
+              dropGroupId === null && "border-primary/40 bg-primary/10",
+            )}
+          >
+            Ungrouped
+          </div>
+        ) : null}
       </div>
 
       {editing ? (
@@ -227,11 +331,19 @@ function IconAction({
   );
 }
 
+type HostDragProps = {
+  draggingId: string | null;
+  onDragPointerDown: (e: React.PointerEvent, id: string) => void;
+};
+
 function GroupSection({
   group,
   rows,
   groups,
   allNames,
+  isDropTarget,
+  draggingId,
+  onDragPointerDown,
   onConnect,
   onOpenWorkspace,
   activeWorkspaceId,
@@ -244,6 +356,7 @@ function GroupSection({
   rows: RemoteProfile[];
   groups: Array<{ id: string; name: string }>;
   allNames: string[];
+  isDropTarget: boolean;
   onConnect: (profile: RemoteProfile) => void;
   onOpenWorkspace: (profile: RemoteProfile) => void;
   activeWorkspaceId: string | null;
@@ -251,12 +364,19 @@ function GroupSection({
   activeForwards: ActiveForward[];
   activeWorkspaceConn: number | null;
   onEdit: (profile: RemoteProfile) => void;
-}) {
+} & HostDragProps) {
   const store = useRemotesStore.getState();
   const collapsed = group?.collapsed ?? false;
 
   return (
-    <div className="mb-0.5">
+    <div
+      data-drop="group"
+      data-group-id={group?.id ?? ""}
+      className={cn(
+        "mb-0.5 rounded-md transition-colors",
+        isDropTarget && "bg-primary/10 outline outline-1 outline-primary/40",
+      )}
+    >
       {group ? (
         <ContextMenu>
           <ContextMenuTrigger asChild>
@@ -311,6 +431,8 @@ function GroupSection({
               profile={profile}
               groups={groups}
               allNames={allNames}
+              isDragging={draggingId === profile.id}
+              onDragPointerDown={onDragPointerDown}
               onConnect={onConnect}
               onOpenWorkspace={onOpenWorkspace}
               activeWorkspaceId={activeWorkspaceId}
@@ -328,6 +450,8 @@ function HostRow({
   profile,
   groups,
   allNames,
+  isDragging,
+  onDragPointerDown,
   onConnect,
   onOpenWorkspace,
   activeWorkspaceId,
@@ -339,6 +463,7 @@ function HostRow({
   profile: RemoteProfile;
   groups: Array<{ id: string; name: string }>;
   allNames: string[];
+  isDragging: boolean;
   onConnect: (profile: RemoteProfile) => void;
   onOpenWorkspace: (profile: RemoteProfile) => void;
   activeWorkspaceId: string | null;
@@ -346,7 +471,7 @@ function HostRow({
   activeForwards: ActiveForward[];
   activeWorkspaceConn: number | null;
   onEdit: (profile: RemoteProfile) => void;
-}) {
+} & Omit<HostDragProps, "draggingId">) {
   const store = useRemotesStore.getState();
   const isWorkspace = activeWorkspaceId === profile.id;
   // Forwards ride on this profile's own connection, which only exists while
@@ -356,9 +481,11 @@ function HostRow({
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
+          onPointerDown={(e) => onDragPointerDown(e, profile.id)}
           className={cn(
             "group flex w-full items-center gap-2 px-2.5 py-[5px] transition-colors",
             "hover:bg-foreground/[0.045] focus-within:bg-foreground/[0.06]",
+            isDragging && "opacity-50",
           )}
         >
           <span
@@ -390,6 +517,7 @@ function HostRow({
           </button>
           <button
             type="button"
+            data-no-drag
             aria-label={`Connect to ${profileLabel(profile)}`}
             onClick={() => onConnect(profile)}
             className="shrink-0 cursor-pointer rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground opacity-0 transition-opacity hover:bg-foreground/10 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
