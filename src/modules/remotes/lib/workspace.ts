@@ -1,15 +1,8 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
+import { openRemoteConnection } from "./connect";
 import { usePromptStore } from "./opener";
-import { profileToTarget } from "./target";
-import type { RemoteProfile, SshEvent } from "./types";
-
-type RemoteOpened = {
-  conn: number;
-  home: string;
-  host: string;
-  user: string;
-};
+import type { RemoteProfile } from "./types";
 
 type RemoteWorkspace = {
   profileId: string;
@@ -49,49 +42,11 @@ export const useRemoteWorkspaceStore = create<State>((set, get) => ({
     if (existing) await get().close();
 
     set({ connecting: true, error: null });
-
-    const onEvent = new Channel<SshEvent>();
     let conn = 0;
-    onEvent.onmessage = (event) => {
-      const s = usePromptStore.getState();
-      if (event.type === "hostKey" && event.status !== "trusted") {
-        s.push({
-          kind: "hostKey",
-          sessionId: conn,
-          promptId: event.promptId,
-          host: event.host,
-          port: event.port,
-          fingerprint: event.fingerprint,
-          algorithm: event.algorithm,
-          status: event.status,
-          conflictLine: event.conflictLine,
-          profileName: profile.name || profile.host,
-          // Workspace prompts are answered on a different command than
-          // terminal ones, because they live in a different connection pool.
-          scope: "workspace",
-        });
-      } else if (event.type === "authPrompt") {
-        s.push({
-          kind: "auth",
-          sessionId: conn,
-          promptId: event.promptId,
-          authKind: event.kind,
-          prompt: event.prompt,
-          echo: event.echo,
-          instructions: event.instructions,
-          profileName: profile.name || profile.host,
-          scope: "workspace",
-        });
-      }
-    };
 
     try {
-      conn = await invoke<number>("remote_reserve");
-      const opened = await invoke<RemoteOpened>("remote_open", {
-        id: conn,
-        target: profileToTarget(profile),
-        onEvent,
-      });
+      const opened = await openRemoteConnection(profile);
+      conn = opened.conn;
       const root = await invoke<string>("remote_authorize", {
         conn: opened.conn,
         path: profile.cwd?.trim() || opened.home,
@@ -107,13 +62,16 @@ export const useRemoteWorkspaceStore = create<State>((set, get) => ({
       set({ active: workspace, connecting: false, error: null });
       return workspace;
     } catch (e) {
-      // Drop any prompt still queued against this attempt.
-      usePromptStore.setState((prev) => ({
-        queue: prev.queue.filter(
-          (p) => p.scope !== "workspace" || p.sessionId !== conn,
-        ),
-      }));
-      void invoke("remote_close", { id: conn }).catch(() => {});
+      // Only reachable with a live connection when authorizing failed after
+      // the handshake; a failed connect cleans up after itself.
+      if (conn) {
+        usePromptStore.setState((prev) => ({
+          queue: prev.queue.filter(
+            (p) => p.scope !== "workspace" || p.sessionId !== conn,
+          ),
+        }));
+        void invoke("remote_close", { id: conn }).catch(() => {});
+      }
       set({ connecting: false, error: String(e), active: null });
       return null;
     }
