@@ -31,7 +31,9 @@ import {
   setRestoreWindowState,
   setShowHidden,
   setTerminalCursorBlink,
+  setSidebarSide,
   setTerminalCursorStyle,
+  type SidebarSide,
   setTerminalFontFamily,
   setTerminalFontSize,
   setTerminalFontWeight,
@@ -98,6 +100,7 @@ export function GeneralSection() {
   const autostart = usePreferencesStore((s) => s.autostart);
   const restoreWindowState = usePreferencesStore((s) => s.restoreWindowState);
   const showHidden = usePreferencesStore((s) => s.showHidden);
+  const sidebarSide = usePreferencesStore((s) => s.sidebarSide);
   const explorerGitDecorations = usePreferencesStore(
     (s) => s.explorerGitDecorations,
   );
@@ -229,6 +232,27 @@ export function GeneralSection() {
 
       <div className="flex flex-col gap-2">
         <Label>Explorer</Label>
+        <SettingRow
+          title="Sidebar side"
+          description="Which edge the explorer, source control and remotes panels sit against."
+        >
+          <Select
+            value={sidebarSide}
+            onValueChange={(v) => void setSidebarSide(v as SidebarSide)}
+          >
+            <SelectTrigger value={sidebarSide} className="h-8 w-28 text-[12px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="left" className="text-[12px]">
+                Left
+              </SelectItem>
+              <SelectItem value="right" className="text-[12px]">
+                Right
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </SettingRow>
         <SettingRow
           title="Show hidden files"
           description="Include dot-prefixed files and folders (.env, .gitignore, .config) in the file explorer and search."

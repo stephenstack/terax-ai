@@ -125,6 +125,7 @@ export type Preferences = {
   themeId: string;
   backgroundKind: BackgroundKind;
   remoteIconSet: RemoteIconSet;
+  sidebarSide: SidebarSide;
   backgroundImageId: string | null;
   backgroundOpacity: number;
   backgroundBlur: number;
@@ -218,6 +219,7 @@ const KEY_THEME = "theme";
 const KEY_THEME_ID = "themeId";
 const KEY_BG_KIND = "backgroundKind";
 const KEY_REMOTE_ICON_SET = "remoteIconSet";
+const KEY_SIDEBAR_SIDE = "sidebarSide";
 
 /** File and folder iconography for the remote browser, ids plus labels, the
  *  same way the editor themes are declared. */
@@ -331,6 +333,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   themeId: DEFAULT_THEME_ID,
   backgroundKind: "none",
   remoteIconSet: "catppuccin",
+  sidebarSide: "left",
   backgroundImageId: null,
   backgroundOpacity: 0.5,
   backgroundBlur: 0,
@@ -419,6 +422,8 @@ export async function loadPreferences(): Promise<Preferences> {
     backgroundKind:
       get<BackgroundKind>(KEY_BG_KIND) ?? DEFAULT_PREFERENCES.backgroundKind,
     remoteIconSet: coerceRemoteIconSet(get<string>(KEY_REMOTE_ICON_SET)),
+    sidebarSide:
+      get<SidebarSide>(KEY_SIDEBAR_SIDE) === "right" ? "right" : "left",
     backgroundImageId:
       get<string | null>(KEY_BG_IMAGE_ID) ??
       DEFAULT_PREFERENCES.backgroundImageId,
@@ -649,6 +654,13 @@ function coerceRemoteIconSet(value: string | undefined): RemoteIconSet {
   return REMOTE_ICON_SETS.includes(value as RemoteIconSet)
     ? (value as RemoteIconSet)
     : DEFAULT_PREFERENCES.remoteIconSet;
+}
+
+/** Which edge the sidebar and its panels sit against. */
+export type SidebarSide = "left" | "right";
+
+export async function setSidebarSide(value: SidebarSide): Promise<void> {
+  await writePref(KEY_SIDEBAR_SIDE, value);
 }
 
 export async function setRemoteIconSet(value: RemoteIconSet): Promise<void> {
@@ -994,6 +1006,7 @@ export async function onPreferencesChange(
     [KEY_THEME_ID]: "themeId",
     [KEY_BG_KIND]: "backgroundKind",
     [KEY_REMOTE_ICON_SET]: "remoteIconSet",
+    [KEY_SIDEBAR_SIDE]: "sidebarSide",
     [KEY_BG_IMAGE_ID]: "backgroundImageId",
     [KEY_BG_OPACITY]: "backgroundOpacity",
     [KEY_BG_BLUR]: "backgroundBlur",
