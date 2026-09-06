@@ -1,7 +1,9 @@
 import { create } from "zustand";
 import type { PtySession } from "@/modules/terminal";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import { registerRemoteOpener } from "@/modules/terminal";
 import { cancelPrompt, openSsh, respondToPrompt } from "./ssh-bridge";
+import { installShellIntegration } from "./shellIntegration";
 import { profileToTarget } from "./target";
 import { findProfile } from "./store";
 import type { SshEvent } from "./types";
@@ -183,6 +185,11 @@ export function installRemoteOpener(): void {
           sessionId = reserved;
         },
       );
+      // The host's own shell reports nothing about where it is, so the tree
+      // and the git section have nothing to follow until this is installed.
+      if (usePreferencesStore.getState().remoteFollowTerminal) {
+        installShellIntegration((data) => void session.write(data));
+      }
       return session;
     } catch (e) {
       // A failed or cancelled connect leaves nothing to answer.
