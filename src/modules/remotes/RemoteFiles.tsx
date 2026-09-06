@@ -58,6 +58,7 @@ export function RemoteFiles({
   const error = useRemoteBrowserStore((s) => s.error);
   const showHidden = useRemoteBrowserStore((s) => s.showHidden);
   const iconSet = usePreferencesStore((s) => s.remoteIconSet);
+  const followTerminal = usePreferencesStore((s) => s.remoteFollowTerminal);
   const store = useRemoteBrowserStore.getState;
 
   useEffect(() => loadIconSet(iconSet), [iconSet]);
@@ -105,7 +106,15 @@ export function RemoteFiles({
           label="Up one level"
           icon={ArrowUp01Icon}
           disabled={!up}
-          onClick={() => up && void store().navigate(up)}
+          onClick={() => {
+            if (!up) return;
+            // Same rule as entering one: the terminal leads while following.
+            if (followTerminal && onRunInTerminal) {
+              onRunInTerminal(`cd ${quoteShellArg(up, false)}`);
+            } else {
+              void store().navigate(up);
+            }
+          }}
         />
         <PanelIconButton
           label="New file"
@@ -152,6 +161,7 @@ export function RemoteFiles({
               entry={entry}
               cwd={cwd}
               iconSet={iconSet}
+              followTerminal={followTerminal}
               onRunInTerminal={onRunInTerminal}
               onOpenFile={onOpenFile}
               onAct={act}
@@ -167,6 +177,7 @@ function Row({
   entry,
   cwd,
   iconSet,
+  followTerminal,
   onRunInTerminal,
   onOpenFile,
   onAct,
@@ -174,6 +185,7 @@ function Row({
   entry: DirEntry;
   cwd: string;
   iconSet: RemoteIconSet;
+  followTerminal: boolean;
   onRunInTerminal?: (line: string) => void;
   onOpenFile?: (path: string) => void;
   onAct: (label: string, fn: () => Promise<unknown>) => Promise<void>;
@@ -184,6 +196,14 @@ function Row({
     ? remoteFolderIconUrl(iconSet, entry.name)
     : remoteFileIconUrl(iconSet, entry.name);
   const store = useRemoteBrowserStore.getState;
+
+  // While the tree follows the terminal, walking it on its own would be undone
+  // by the next prompt. Moving the terminal is what moves both.
+  const cd = () => onRunInTerminal?.(`cd ${quoteShellArg(path, false)}`);
+  const enterDir = () => {
+    if (followTerminal && onRunInTerminal) cd();
+    else void store().navigate(path);
+  };
 
   const rename = () => {
     const next = window.prompt("Rename to", entry.name);
@@ -228,9 +248,7 @@ function Row({
       <ContextMenuTrigger asChild>
         <button
           type="button"
-          onDoubleClick={() =>
-            isDir ? void store().navigate(path) : onOpenFile?.(path)
-          }
+          onDoubleClick={() => (isDir ? enterDir() : onOpenFile?.(path))}
           className={cn(
             "flex w-full items-center gap-2 px-2.5 py-[3px] text-left transition-colors",
             "hover:bg-foreground/[0.045] focus-visible:bg-foreground/[0.06] focus-visible:outline-none",
@@ -259,13 +277,9 @@ function Row({
       <ContextMenuContent className="w-52">
         {isDir ? (
           <>
-            <ContextMenuItem onSelect={() => void store().navigate(path)}>
-              Open
-            </ContextMenuItem>
+            <ContextMenuItem onSelect={enterDir}>Open</ContextMenuItem>
             {onRunInTerminal ? (
-              <ContextMenuItem
-                onSelect={() => onRunInTerminal(`cd ${quoteShellArg(path, false)}`)}
-              >
+              <ContextMenuItem onSelect={cd}>
                 Change directory here
               </ContextMenuItem>
             ) : null}
