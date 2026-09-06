@@ -3,14 +3,33 @@ import type { Terminal } from "@xterm/xterm";
 import {
   applyEdit,
   classifyKey,
+  continueSuggestion,
   suggestionFor,
   type LineEdit,
 } from "./commandLine";
 
 /** Long enough that a typist is not billed for every keystroke. */
-const DEBOUNCE_MS = 260;
+const DEBOUNCE_MS = 200;
 /** Below this there is not enough of a command to guess at. */
 const MIN_CHARS = 3;
+
+/**
+ * The keychain is an IPC round trip and the key does not change between
+ * keystrokes. Fetching it per request put that latency in front of every
+ * suggestion.
+ */
+let keyCache: { provider: string; key: string | null } | null = null;
+
+async function cachedKey(provider: string): Promise<string | null> {
+  if (keyCache?.provider === provider) return keyCache.key;
+  const { getAllKeys } = await import("@/modules/ai/lib/keyring");
+  const keys = await getAllKeys().catch(() => null);
+  const key = keys
+    ? ((keys as Record<string, string | null>)[provider] ?? null)
+    : null;
+  keyCache = { provider, key };
+  return key;
+}
 
 let reported = false;
 
@@ -34,15 +53,12 @@ async function askModel(
   // Imported here rather than at the top: the terminal is in the eager
   // bundle and the completion stack is not, and it stays that way until
   // someone actually turns this on.
-  const [{ requestCompletion }, { resolveCompletionDeps }, { getAllKeys }] =
-    await Promise.all([
-      import("@/modules/editor/lib/autocomplete/provider"),
-      import("@/modules/editor/lib/autocomplete/deps"),
-      import("@/modules/ai/lib/keyring"),
-    ]);
+  const [{ requestCompletion }, { resolveCompletionDeps }] = await Promise.all([
+    import("@/modules/editor/lib/autocomplete/provider"),
+    import("@/modules/editor/lib/autocomplete/deps"),
+  ]);
   const s = usePreferencesStore.getState();
-  const keys = await getAllKeys().catch(() => null);
-  const apiKey = keys ? (keys[s.autocompleteProvider] ?? null) : null;
+  const apiKey = await cachedKey(s.autocompleteProvider);
   const deps = resolveCompletionDeps(s, apiKey);
   return requestCompletion(
     {
@@ -68,6 +84,9 @@ async function askModel(
 export class TerminalSuggest {
   private line = "";
   private text = "";
+  /** The last answer and the line it was for, to carry forward locally. */
+  private lastAsked = "";
+  private lastAnswer = "";
   private timer: ReturnType<typeof setTimeout> | null = null;
   private abort: AbortController | null = null;
   private decoration: { dispose: () => void } | null = null;
@@ -96,7 +115,22 @@ export class TerminalSuggest {
       return false;
     }
     this.line = next;
-    if (edit.kind !== "reset") this.schedule();
+    if (edit.kind === "reset") {
+      this.lastAsked = "";
+      this.lastAnswer = "";
+      return false;
+    }
+
+    // Typing along a suggestion is agreement, not a new question.
+    const carried = continueSuggestion(this.lastAsked, this.lastAnswer, next);
+    if (carried) {
+      this.lastAsked = next;
+      this.lastAnswer = carried;
+      this.show(carried);
+      return false;
+    }
+
+    this.schedule();
     return false;
   }
 
@@ -127,7 +161,11 @@ export class TerminalSuggest {
       // The line moved on while the model was thinking.
       if (ctl.signal.aborted || asked !== this.line) return;
       const text = suggestionFor(asked, raw);
-      if (text) this.show(text);
+      if (text) {
+        this.lastAsked = asked;
+        this.lastAnswer = text;
+        this.show(text);
+      }
     } catch (e) {
       // Once per session, and only for a real failure. Silence here is what
       // makes a missing model id or key look like a feature that does not

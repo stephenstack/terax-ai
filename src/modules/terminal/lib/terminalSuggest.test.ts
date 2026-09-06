@@ -37,6 +37,28 @@ describe("TerminalSuggest", () => {
     expect(s.onKey(key({ key: "ArrowRight" }))).toBe(false);
   });
 
+  it("carries a suggestion forward without asking again", async () => {
+    let asks = 0;
+    const s = new TerminalSuggest(fakeTerm(), () => null, async () => {
+      asks += 1;
+      return "eckout main";
+    });
+    for (const c of "git ch") s.onKey(key({ key: c }));
+    await new Promise((r) => setTimeout(r, 400));
+    expect(asks).toBe(1);
+
+    // Typing along it is agreement, not a new question.
+    s.onKey(key({ key: "e" }));
+    s.onKey(key({ key: "c" }));
+    await new Promise((r) => setTimeout(r, 400));
+    expect(asks).toBe(1);
+
+    // Diverging is worth asking about.
+    s.onKey(key({ key: "Z" }));
+    await new Promise((r) => setTimeout(r, 400));
+    expect(asks).toBe(2);
+  });
+
   it("accepts a suggestion by writing it, once", async () => {
     const term = fakeTerm();
     const s = new TerminalSuggest(term, () => null, async () => "eckout main");

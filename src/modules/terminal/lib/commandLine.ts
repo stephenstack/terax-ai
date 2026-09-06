@@ -67,3 +67,26 @@ export function suggestionFor(line: string, raw: string): string {
   }
   return first;
 }
+
+/**
+ * Carry a suggestion forward while the user types what it already predicted.
+ *
+ * Most keystrokes after a suggestion arrives are the user agreeing with it one
+ * character at a time. Asking the model again for text it has already sent
+ * back is the slowest possible way to say nothing new, so the remainder is
+ * sliced locally and shown instantly.
+ *
+ * Returns null when the typing diverged, which is the only case worth a
+ * request.
+ */
+export function continueSuggestion(
+  prevLine: string,
+  prevSuggestion: string,
+  nextLine: string,
+): string | null {
+  if (!prevSuggestion || !nextLine.startsWith(prevLine)) return null;
+  const typed = nextLine.slice(prevLine.length);
+  if (!typed || !prevSuggestion.startsWith(typed)) return null;
+  const rest = prevSuggestion.slice(typed.length);
+  return rest || null;
+}

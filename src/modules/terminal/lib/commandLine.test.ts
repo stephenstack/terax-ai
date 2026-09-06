@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { applyEdit, classifyKey, suggestionFor } from "./commandLine";
+import {
+  applyEdit,
+  classifyKey,
+  continueSuggestion,
+  suggestionFor,
+} from "./commandLine";
 
 const key = (over: Record<string, unknown>) =>
   ({ key: "", ctrlKey: false, altKey: false, metaKey: false, ...over }) as never;
@@ -50,5 +55,25 @@ describe("suggestionFor", () => {
 
   it("has nothing to offer for an empty answer", () => {
     expect(suggestionFor("ls", "   ")).toBe("");
+  });
+});
+
+describe("continueSuggestion", () => {
+  it("slices what the user has already typed of it", () => {
+    expect(continueSuggestion("git ch", "eckout main", "git che")).toBe(
+      "ckout main",
+    );
+  });
+
+  it("gives up when the typing diverged", () => {
+    expect(continueSuggestion("git ch", "eckout main", "git ci")).toBeNull();
+  });
+
+  it("gives up once the whole suggestion has been typed out", () => {
+    expect(continueSuggestion("git ch", "eck", "git check")).toBeNull();
+  });
+
+  it("gives up on a backspace, which is not agreement", () => {
+    expect(continueSuggestion("git ch", "eckout", "git c")).toBeNull();
   });
 });
