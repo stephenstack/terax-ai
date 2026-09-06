@@ -3,7 +3,12 @@ import { z } from "zod";
 import { native } from "../lib/native";
 import { checkShellCommand } from "../lib/security";
 import type { ToolContext } from "./context";
-import { currentWorkspaceEnv, workspaceScopeKey } from "@/modules/workspace";
+import {
+  currentWorkspaceEnv,
+  isRemoteEnv,
+  workspaceScopeKey,
+} from "@/modules/workspace";
+import { splitCwd, wrapForCwd } from "./remoteShell";
 
 /**
  * Per-session lazy shell-session id. The agent gets one persistent shell per
@@ -27,11 +32,39 @@ function workspaceSessionKey(sessionId: string): string {
   return `${sessionId}:${workspaceScopeKey(currentWorkspaceEnv())}`;
 }
 
+/**
+ * The far side has no session to hold a working directory, so it is kept here
+ * and handed back each time. Keyed the same way the local shells are, so two
+ * chats do not walk over each other.
+ */
+const remoteCwd = new Map<string, string>();
+
+async function runRemote(
+  key: string,
+  command: string,
+  fallbackCwd: string | null,
+  timeoutSecs: number | undefined,
+) {
+  const cwd = remoteCwd.get(key) ?? fallbackCwd;
+  const r = await native.runCommand(wrapForCwd(command), cwd, timeoutSecs);
+  const { stdout, cwd: after } = splitCwd(r.stdout);
+  if (after) remoteCwd.set(key, after);
+  return {
+    command,
+    stdout,
+    stderr: r.stderr,
+    exit_code: r.exit_code,
+    timed_out: r.timed_out,
+    truncated: r.truncated,
+    cwd_after: after ?? cwd,
+  };
+}
+
 export function buildShellTools(ctx: ToolContext) {
   return {
     bash_run: tool({
       description:
-        "Run a foreground shell command in this session's persistent agent shell. cwd persists across calls (so `cd foo` then `bash_run pwd` works). Use for short-lived commands (lint, test, search, build). For long-running or daemon processes (dev servers, watch tasks), use `bash_background`. NEVER invoke interactive tools (vim, less, top) — they will hang. Asks for user approval.",
+        "Run a foreground shell command in this session's persistent agent shell. cwd persists across calls (so `cd foo` then `bash_run pwd` works). Use for short-lived commands (lint, test, search, build). For long-running or daemon processes (dev servers, watch tasks), use `bash_background`, which is local only: on a remote workspace run them in the foreground with a timeout instead. NEVER invoke interactive tools (vim, less, top) — they will hang. Asks for user approval.",
       inputSchema: z.object({
         command: z.string(),
         timeout_secs: z.number().int().min(1).max(300).optional(),
@@ -44,6 +77,10 @@ export function buildShellTools(ctx: ToolContext) {
         if (!sid) return { error: "no active chat session" };
         try {
           const cwd = ctx.getCwd();
+          const env = currentWorkspaceEnv();
+          if (isRemoteEnv(env)) {
+            return await runRemote(workspaceSessionKey(sid), command, cwd, timeout_secs);
+          }
           const shellId = await getSessionShell(workspaceSessionKey(sid), cwd);
           const r = await native.shellSessionRun(
             shellId,

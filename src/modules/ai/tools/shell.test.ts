@@ -21,6 +21,7 @@ vi.mock("../lib/native", () => ({ native: nativeMock }));
 vi.mock("../lib/security", () => securityMock);
 vi.mock("@/modules/workspace", () => ({
   currentWorkspaceEnv: () => ({ kind: "local" }),
+  isRemoteEnv: () => false,
   workspaceScopeKey: () => "local",
 }));
 

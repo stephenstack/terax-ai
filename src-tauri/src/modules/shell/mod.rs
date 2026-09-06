@@ -27,7 +27,7 @@ const MAX_OUTPUT_BYTES: usize = 256 * 1024;
 
 /// Said plainly so the agent reports it rather than retrying forever.
 const REMOTE_UNSUPPORTED: &str =
-    "not available on a remote workspace; use run_command, which runs on the host";
+    "background processes are local only; on a remote workspace run the command in the foreground instead";
 
 /// Both the agent's session shell and its background processes hold local
 /// state: a working directory carried across calls, a pid and a log buffer.
