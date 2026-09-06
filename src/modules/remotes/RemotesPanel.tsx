@@ -15,6 +15,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import type { PanelImperativeHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import {
   ArrowDown01Icon,
@@ -41,6 +42,7 @@ import { HostDialog } from "./HostDialog";
 import { RemoteFiles } from "./RemoteFiles";
 import { RemoteGit } from "./RemoteGit";
 import { useFollowTerminal, useRemoteBrowserStore } from "./lib/browser";
+import { useRemoteSections } from "./lib/sections";
 import { ImportConfigDialog } from "./ImportConfigDialog";
 import { emptyProfile, useRemotesStore } from "./lib/store";
 import { buildRemoteTree, profileAddress, profileLabel, uniqueName } from "./lib/tree";
@@ -76,8 +78,9 @@ export function RemotesPanel({
   const browserConn = useRemoteBrowserStore((s) => s.conn);
   const browserProfileId = useRemoteBrowserStore((s) => s.profileId);
   const browserConnecting = useRemoteBrowserStore((s) => s.connecting);
-  const [filesExpanded, setFilesExpanded] = useState(true);
-  const [gitExpanded, setGitExpanded] = useState(false);
+  const filesExpanded = useRemoteSections((s) => s.filesExpanded);
+  const gitExpanded = useRemoteSections((s) => s.gitExpanded);
+  const toggleSection = useRemoteSections((s) => s.toggle);
   const browserHost = useRemotesStore(
     (s) => s.profiles.find((p) => p.id === browserProfileId)?.name,
   );
@@ -264,7 +267,7 @@ export function RemotesPanel({
                     <Section
                       title={browserHost ? `Files on ${browserHost}` : "Files"}
                       expanded={filesExpanded}
-                      onToggle={() => setFilesExpanded((v) => !v)}
+                      onToggle={() => toggleSection("files")}
                       onClose={() =>
                         void useRemoteBrowserStore.getState().close()
                       }
@@ -280,7 +283,7 @@ export function RemotesPanel({
                     <Section
                       title="Git"
                       expanded={gitExpanded}
-                      onToggle={() => setGitExpanded((v) => !v)}
+                      onToggle={() => toggleSection("git")}
                     >
                       <RemoteGit />
                     </Section>
@@ -433,6 +436,9 @@ function PanelBody({
   sections: Section[];
   children: React.ReactNode;
 }) {
+  const sizes = useRemoteSections((s) => s.sizes);
+  const setSize = useRemoteSections((s) => s.setSize);
+  const refs = useRef(new Map<string, PanelImperativeHandle>());
   const hosts = (
     <div className="h-full overflow-y-auto pb-2">{children}</div>
   );
@@ -452,14 +458,32 @@ function PanelBody({
 
   return (
     <>
-      <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
+      <ResizablePanelGroup
+        orientation="vertical"
+        className="min-h-0 flex-1"
+        onLayoutChanged={(_, { isUserInteraction }) => {
+          if (!isUserInteraction) return;
+          for (const s of expanded) {
+            const percent = refs.current.get(s.id)?.getSize().asPercentage;
+            if (percent != null) setSize(s.id, percent);
+          }
+        }}
+      >
         <ResizablePanel id="remotes-hosts" minSize="15%">
           {hosts}
         </ResizablePanel>
         {expanded.map((s) => (
           <Fragment key={s.id}>
             <ResizableHandle className="bg-border/60" />
-            <ResizablePanel id={s.id} minSize="15%">
+            <ResizablePanel
+              id={s.id}
+              minSize="15%"
+              defaultSize={sizes[s.id] ? `${sizes[s.id]}%` : undefined}
+              panelRef={(r) => {
+                if (r) refs.current.set(s.id, r);
+                else refs.current.delete(s.id);
+              }}
+            >
               {s.node}
             </ResizablePanel>
           </Fragment>
