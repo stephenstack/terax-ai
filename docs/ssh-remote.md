@@ -150,3 +150,41 @@ Optional:
   paired guard test cannot prove anything about tunnelling.
 - `TERAX_TEST_FORWARD_PORT` enables the forwarding test. It should name a port
   bound to the server's own loopback.
+
+An unconfigured run is not a passing run. The `live!` macro returns early when
+`TERAX_TEST_SSH` is unset, and a test that returns early reports `ok`, so all
+21 of these count as passing in a normal `cargo test` while touching nothing.
+Treat a green suite as covering the remote code only when the variables above
+were actually set.
+
+### The fixture the tests expect
+
+The assertions name specific content, so a server seeded differently fails in
+ways that look like defects. Under `TERAX_TEST_SSH_ROOT`:
+
+- `src/main.rs` containing `hello world`, and a second file whose *path*
+  contains `we:ird` containing `hello there`. Together they check that a
+  colon in a filename does not break the grep parsing.
+- At least one tracked file with an uncommitted modification, or the remote
+  `git status` assertion has nothing to find. The root itself must be a git
+  repo, owned by the SSH user: a repo owned by someone else trips git's
+  `dubious ownership` guard and the resolve fails.
+- A dotfile and a dot-directory, so the hidden-file filter has something to
+  hide.
+
+`TERAX_TEST_FORWARD_PORT` must name a *real* server on the remote loopback
+that reads the request before replying, and its body must contain
+`remote service alive`. A one-shot `nc` responder is not good enough: it exits
+with the request still unread, and the resulting RST surfaces as a
+`ConnectionReset` that reads exactly like a broken tunnel.
+
+The server must also permit forwarding. `linuxserver/openssh-server` ships
+`AllowTcpForwarding no`, which fails the forwarding test identically to a real
+bug. If it fails, confirm the server first with `ssh -L` before suspecting
+this code.
+
+For the ProxyJump tests, the far host must be reachable only through the
+bastion. Putting the test runner on the same private network defeats the
+paired guard test, which proves tunnelling by requiring that a *direct*
+connection fails. Resolve the far host's name on the bastion's side, and seed
+`known_hosts` with both hosts' keys.
