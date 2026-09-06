@@ -273,6 +273,78 @@ pub fn read_file_blocking(conn: u32, path: &str) -> Result<Vec<u8>, String> {
         .map_err(|_| "timed out reading the remote file".to_owned())?
 }
 
+/// Copy a remote file into the local downloads directory, returning where it
+/// landed.
+///
+/// Streamed rather than read into memory: a download is the one path where the
+/// file has no reason to be bounded by anything the editor would accept, and
+/// the bytes never enter the webview at all.
+#[tauri::command]
+pub async fn remote_download(
+    state: tauri::State<'_, Arc<RemoteState>>,
+    conn: u32,
+    path: String,
+) -> Result<String, String> {
+    let connection = state.require(conn)?;
+    let remote = resolve(&connection, &path);
+    let name = path::basename(&remote);
+    if name.is_empty() {
+        return Err("that path has no file name".to_owned());
+    }
+
+    let dir = dirs::download_dir()
+        .or_else(dirs::home_dir)
+        .ok_or_else(|| "could not find a downloads directory".to_owned())?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    let dest = unique_download_path(&dir, name);
+
+    let sftp = connection.sftp().await;
+    let mut source = sftp
+        .open(remote.clone())
+        .await
+        .map_err(|e| format!("could not open {remote}: {e}"))?;
+    let mut target = tokio::fs::File::create(&dest)
+        .await
+        .map_err(|e| format!("could not create {}: {e}", dest.display()))?;
+
+    let copied = tokio::io::copy(&mut source, &mut target).await;
+    if let Err(e) = copied {
+        // A partial file is worse than none: it looks like a finished download.
+        let _ = tokio::fs::remove_file(&dest).await;
+        return Err(format!("could not download {remote}: {e}"));
+    }
+    tokio::io::AsyncWriteExt::flush(&mut target)
+        .await
+        .map_err(|e| format!("could not finish writing {}: {e}", dest.display()))?;
+
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+/// Never clobber an existing download: `notes.txt` becomes `notes (2).txt`.
+fn unique_download_path(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let first = dir.join(name);
+    if !first.exists() {
+        return first;
+    }
+    let path = std::path::Path::new(name);
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| name.to_owned());
+    let ext = path.extension().map(|e| e.to_string_lossy().into_owned());
+    for n in 2..10_000 {
+        let candidate = match &ext {
+            Some(e) => dir.join(format!("{stem} ({n}).{e}")),
+            None => dir.join(format!("{stem} ({n})")),
+        };
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    first
+}
+
 /// Resolve a path the frontend sent against the remote home, so `~` works and
 /// a relative path is anchored somewhere sensible.
 pub fn resolve(c: &RemoteConn, raw: &str) -> String {
