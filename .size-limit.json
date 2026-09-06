@@ -14,9 +14,17 @@
   {
     "name": "total client JS",
     "path": [
-      "dist/assets/*.js"
+      "dist/assets/*.js",
+      "!dist/assets/material-*.js",
+      "!dist/assets/vscode-*.js"
     ],
     "limit": "1540 KB",
+    "gzip": true
+  },
+  {
+    "name": "remote icon sets (fetched only when selected)",
+    "path": ["dist/assets/material-*.js", "dist/assets/vscode-*.js"],
+    "limit": "330 KB",
     "gzip": true
   }
 ]

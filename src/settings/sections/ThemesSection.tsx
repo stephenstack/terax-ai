@@ -17,13 +17,23 @@ import {
   EDITOR_THEME_MODE,
   EDITOR_THEMES,
   type EditorThemePref,
+  REMOTE_ICON_SET_LABELS,
+  REMOTE_ICON_SETS,
+  type RemoteIconSet,
   setBackgroundBlur,
   setBackgroundImageId,
   setBackgroundKind,
   setBackgroundOpacity,
+  setRemoteIconSet,
   setEditorTheme,
   setWindowVibrancy,
 } from "@/modules/settings/store";
+import {
+  loadIconSet,
+  remoteFileIconUrl,
+  remoteFolderIconUrl,
+  subscribeIconSets,
+} from "@/modules/remotes/lib/icons";
 import { useTheme } from "@/modules/theme";
 import {
   deleteBgImage,
@@ -44,7 +54,7 @@ import {
 import { Edit02Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
 
@@ -80,6 +90,7 @@ export function ThemesSection() {
   const backgroundImageId = usePreferencesStore((s) => s.backgroundImageId);
   const backgroundOpacity = usePreferencesStore((s) => s.backgroundOpacity);
   const backgroundBlur = usePreferencesStore((s) => s.backgroundBlur);
+  const remoteIconSet = usePreferencesStore((s) => s.remoteIconSet);
   const windowVibrancy = usePreferencesStore((s) => s.windowVibrancy);
 
   const [backdrop, setBackdrop] = useState<Backdrop>("none");
@@ -440,7 +451,78 @@ export function ThemesSection() {
           </p>
         )}
       </div>
+
+      <div className="flex flex-col gap-2 border-t border-border/50 pt-5">
+        <SectionHeader
+          title="Remote file icons"
+          description="Iconography for the file browser in the remotes panel. The local explorer is unaffected."
+        />
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {REMOTE_ICON_SETS.map((id) => (
+            <IconSetCard
+              key={id}
+              id={id}
+              selected={remoteIconSet === id}
+              onSelect={() => void setRemoteIconSet(id)}
+            />
+          ))}
+        </div>
+      </div>
     </div>
+  );
+}
+
+const ICON_SET_PREVIEW = ["index.ts", "main.py", "readme.md", "src"];
+
+function IconSetCard({
+  id,
+  selected,
+  onSelect,
+}: {
+  id: RemoteIconSet;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  // Only the chosen set is in memory; a card previews the one it offers, so
+  // hovering it is what pulls the set down.
+  useEffect(() => {
+    if (selected) loadIconSet(id);
+  }, [id, selected]);
+  useSyncExternalStore(subscribeIconSets, () => id);
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      onPointerEnter={() => loadIconSet(id)}
+      onFocus={() => loadIconSet(id)}
+      className={cn(
+        "flex flex-col gap-2 rounded-lg border p-2.5 text-left transition",
+        selected
+          ? "border-primary/60 bg-primary/5"
+          : "border-border/60 hover:border-border hover:bg-accent/40",
+      )}
+    >
+      <span className="flex h-5 items-center gap-1.5">
+        {ICON_SET_PREVIEW.map((name) => {
+          const url =
+            name === "src"
+              ? remoteFolderIconUrl(id, name)
+              : remoteFileIconUrl(id, name);
+          return url ? (
+            <img key={name} src={url} alt="" draggable={false} className="size-4" />
+          ) : (
+            <span
+              key={name}
+              className="size-3 rounded-[3px] bg-muted-foreground/40"
+            />
+          );
+        })}
+      </span>
+      <span className="text-[11.5px] text-foreground">
+        {REMOTE_ICON_SET_LABELS[id]}
+      </span>
+    </button>
   );
 }
 

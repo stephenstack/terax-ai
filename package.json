@@ -11,6 +11,7 @@
   "scripts": {
     "build:cli": "node scripts/build-cli.mjs --release",
     "build:cli:dev": "node scripts/build-cli.mjs",
+    "build:icons": "node --experimental-strip-types scripts/build-remote-icon-sets.mjs",
     "dev": "vite",
     "dev:inspect": "INSPECT=true vite",
     "build": "tsc && vite build",
@@ -112,6 +113,8 @@
   "devDependencies": {
     "@babel/core": "^7.29.7",
     "@biomejs/biome": "^2.5.10",
+    "@iconify-json/material-icon-theme": "^1.2.70",
+    "@iconify-json/vscode-icons": "^1.2.76",
     "@rolldown/plugin-babel": "^0.2.3",
     "@size-limit/file": "^12.1.0",
     "@tailwindcss/vite": "^4.3.3",

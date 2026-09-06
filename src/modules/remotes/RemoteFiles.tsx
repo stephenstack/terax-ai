@@ -9,6 +9,7 @@ import {
 import { cn } from "@/lib/utils";
 import { quoteShellArg } from "@/lib/shellQuote";
 import type { DirEntry } from "@/modules/explorer/lib/useFileTree";
+import type { RemoteIconSet } from "@/modules/settings/store";
 import {
   ArrowUp01Icon,
   Copy01Icon,
@@ -23,7 +24,9 @@ import {
   ViewOffSlashIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import {
   browserEnv,
@@ -31,6 +34,12 @@ import {
   parentRemote,
   useRemoteBrowserStore,
 } from "./lib/browser";
+import {
+  loadIconSet,
+  remoteFileIconUrl,
+  remoteFolderIconUrl,
+  subscribeIconSets,
+} from "./lib/icons";
 
 export function RemoteFiles({
   onRunInTerminal,
@@ -45,7 +54,13 @@ export function RemoteFiles({
   const connecting = useRemoteBrowserStore((s) => s.connecting);
   const error = useRemoteBrowserStore((s) => s.error);
   const showHidden = useRemoteBrowserStore((s) => s.showHidden);
+  const iconSet = usePreferencesStore((s) => s.remoteIconSet);
   const store = useRemoteBrowserStore.getState;
+
+  useEffect(() => loadIconSet(iconSet), [iconSet]);
+  // The URLs change the moment a set finishes arriving, so the rows have to be
+  // told; the set itself is module state rather than a store.
+  useSyncExternalStore(subscribeIconSets, () => iconSet);
 
   const up = parentRemote(cwd);
 
@@ -133,6 +148,7 @@ export function RemoteFiles({
               key={entry.name}
               entry={entry}
               cwd={cwd}
+              iconSet={iconSet}
               onRunInTerminal={onRunInTerminal}
               onAct={act}
             />
@@ -146,16 +162,21 @@ export function RemoteFiles({
 function Row({
   entry,
   cwd,
+  iconSet,
   onRunInTerminal,
   onAct,
 }: {
   entry: DirEntry;
   cwd: string;
+  iconSet: RemoteIconSet;
   onRunInTerminal?: (line: string) => void;
   onAct: (label: string, fn: () => Promise<unknown>) => Promise<void>;
 }) {
   const path = joinRemote(cwd, entry.name);
   const isDir = entry.kind === "dir";
+  const iconUrl = isDir
+    ? remoteFolderIconUrl(iconSet, entry.name)
+    : remoteFileIconUrl(iconSet, entry.name);
   const store = useRemoteBrowserStore.getState;
 
   const rename = () => {
@@ -207,12 +228,21 @@ function Row({
             "hover:bg-foreground/[0.045] focus-visible:bg-foreground/[0.06] focus-visible:outline-none",
           )}
         >
-          <HugeiconsIcon
-            icon={isDir ? Folder01Icon : File01Icon}
-            size={13}
-            strokeWidth={1.75}
-            className="shrink-0 text-muted-foreground"
-          />
+          {iconUrl ? (
+            <img
+              src={iconUrl}
+              alt=""
+              draggable={false}
+              className="size-[14px] shrink-0"
+            />
+          ) : (
+            <HugeiconsIcon
+              icon={isDir ? Folder01Icon : File01Icon}
+              size={13}
+              strokeWidth={1.75}
+              className="shrink-0 text-muted-foreground"
+            />
+          )}
           <span className="truncate text-[11.5px] leading-tight text-foreground">
             {entry.name}
           </span>
