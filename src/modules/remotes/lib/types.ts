@@ -42,6 +42,17 @@ export type ActiveForward = {
   remotePort: number;
 };
 
+/**
+ * Background shown while one of this host's sessions is the active pane.
+ * The image itself lives in the shared bgImageStore, keyed by imageId.
+ */
+export type RemoteBackground = {
+  imageId: string;
+  /** 0..1, exactly as rendered. */
+  opacity: number;
+  blur: number;
+};
+
 export type RemoteProfile = {
   id: string;
   name: string;
@@ -68,6 +79,8 @@ export type RemoteProfile = {
   appearance: RemoteAppearance;
   /** Accent used by the panel and tab, matching the spaces colour vocabulary. */
   color?: string;
+  /** Overrides the app-wide background while this host is active. */
+  background?: RemoteBackground;
   createdAt: number;
   updatedAt: number;
 };

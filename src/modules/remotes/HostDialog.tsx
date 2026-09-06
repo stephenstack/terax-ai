@@ -1,3 +1,4 @@
+import { AccentPicker } from "@/components/AccentPicker";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -17,17 +18,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { TERMINAL_CURSOR_STYLES } from "@/modules/settings/store";
 import { Delete02Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   pruneAppearance,
   useTerminalFont,
   type TerminalAppearance,
 } from "@/modules/terminal";
+import {
+  deleteBgImage,
+  importBgImageFromFile,
+} from "@/modules/theme/bgImageStore";
+import type { RemoteBackground } from "./lib/types";
 import { parseJumpSpec } from "./lib/jumps";
 import { agentIdentities, discoverKeys } from "./lib/ssh-bridge";
 import { useRemotesStore } from "./lib/store";
@@ -346,6 +353,10 @@ export function HostDialog({ profile, groups, onClose }: Props) {
                 base={base}
                 appearance={draft.appearance}
                 onChange={(appearance) => patch({ appearance })}
+                color={draft.color}
+                onColorChange={(color) => patch({ color })}
+                background={draft.background}
+                onBackgroundChange={(background) => patch({ background })}
               />
             </TabsContent>
           </div>
@@ -673,20 +684,162 @@ function EnvEditor({
   );
 }
 
+const DEFAULT_HOST_BG: Omit<RemoteBackground, "imageId"> = {
+  opacity: 0.5,
+  blur: 0,
+};
+
+function HostBackgroundEditor({
+  background,
+  onChange,
+}: {
+  background: RemoteBackground | undefined;
+  onChange: (background: RemoteBackground | undefined) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const pick = async (files: FileList | null) => {
+    setError(null);
+    if (!files || files.length === 0) return;
+    try {
+      const previous = background?.imageId;
+      const { id } = await importBgImageFromFile(files[0]);
+      onChange({ ...DEFAULT_HOST_BG, ...background, imageId: id });
+      // The old blob is unreachable once the profile stops naming it.
+      if (previous && previous !== id) {
+        await deleteBgImage(previous).catch(() => undefined);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to import image");
+    }
+  };
+
+  const remove = async () => {
+    setError(null);
+    const previous = background?.imageId;
+    onChange(undefined);
+    if (previous) await deleteBgImage(previous).catch(() => undefined);
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <Label className="text-[11px] text-muted-foreground">Background</Label>
+        <div className="flex items-center gap-2">
+          {background ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-[11px] text-muted-foreground hover:text-destructive"
+              onClick={() => void remove()}
+            >
+              Remove
+            </Button>
+          ) : null}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2 text-[11px]"
+            onClick={() => inputRef.current?.click()}
+          >
+            {background ? "Replace image" : "Choose image"}
+          </Button>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              void pick(e.target.files);
+              e.target.value = "";
+            }}
+          />
+        </div>
+      </div>
+
+      {error ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-[11.5px] text-destructive">
+          {error}
+        </div>
+      ) : null}
+
+      {background ? (
+        <div className="flex flex-col gap-3 rounded-lg border border-border/60 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[11.5px] text-muted-foreground">Opacity</span>
+            <span className="tabular-nums text-[11px] text-muted-foreground">
+              {Math.round(background.opacity * 100)}%
+            </span>
+          </div>
+          <Slider
+            value={[background.opacity]}
+            min={0}
+            max={1}
+            step={0.01}
+            onValueChange={(v) =>
+              onChange({ ...background, opacity: v[0] ?? 0 })
+            }
+          />
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <span className="text-[11.5px] text-muted-foreground">Blur</span>
+            <span className="tabular-nums text-[11px] text-muted-foreground">
+              {background.blur}px
+            </span>
+          </div>
+          <Slider
+            value={[background.blur]}
+            min={0}
+            max={64}
+            step={1}
+            onValueChange={(v) => onChange({ ...background, blur: v[0] ?? 0 })}
+          />
+        </div>
+      ) : (
+        <p className="text-[11px] text-muted-foreground">
+          Shown instead of the app background while a pane for this host is
+          focused.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function AppearanceEditor({
   base,
   appearance,
   onChange,
+  color,
+  onColorChange,
+  background,
+  onBackgroundChange,
 }: {
   base: TerminalAppearance;
   appearance: RemoteProfile["appearance"];
   onChange: (appearance: RemoteProfile["appearance"]) => void;
+  color: string | undefined;
+  onColorChange: (color: string | undefined) => void;
+  background: RemoteBackground | undefined;
+  onBackgroundChange: (background: RemoteBackground | undefined) => void;
 }) {
   const patch = (next: Partial<RemoteProfile["appearance"]>) =>
     onChange({ ...appearance, ...next });
 
   return (
     <div className="space-y-3">
+      <Field label="Tab color">
+        <AccentPicker
+          current={color}
+          clearLabel="Use the default"
+          onPick={(value) => onColorChange(value || undefined)}
+        />
+      </Field>
+
+      <HostBackgroundEditor
+        background={background}
+        onChange={onBackgroundChange}
+      />
+
       <div className="grid grid-cols-2 gap-2">
         <Field label="Font family">
           <Input

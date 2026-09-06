@@ -5,6 +5,7 @@ import {
 import { BG_OPACITY_SETTINGS_MAX } from "@/modules/settings/store";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useBackgroundOverride } from "./backgroundOverride";
 
 const OVERLAY_Z = 2147483646;
 const RESIZE_IDLE_MS = 280;
@@ -16,7 +17,8 @@ export function SurfaceLayer() {
     (s) => s.backgroundKind === "image" && !!s.backgroundImageId,
   );
   const hydrated = usePreferencesStore((s) => s.hydrated);
-  const active = hydrated ? storeActive : fastPath.active;
+  const override = useBackgroundOverride((s) => s.override);
+  const active = override !== null || (hydrated ? storeActive : fastPath.active);
   if (!active) return null;
   return <BackgroundImage fastImageId={fastPath.imageId} />;
 }
@@ -24,9 +26,13 @@ export function SurfaceLayer() {
 function BackgroundImage({ fastImageId }: { fastImageId: string | null }) {
   const storeImageId = usePreferencesStore((s) => s.backgroundImageId);
   const hydrated = usePreferencesStore((s) => s.hydrated);
-  const imageId = hydrated ? storeImageId : fastImageId;
-  const opacity = usePreferencesStore((s) => s.backgroundOpacity);
-  const blur = usePreferencesStore((s) => s.backgroundBlur);
+  const override = useBackgroundOverride((s) => s.override);
+  const imageId =
+    override?.imageId ?? (hydrated ? storeImageId : fastImageId);
+  const prefOpacity = usePreferencesStore((s) => s.backgroundOpacity);
+  const prefBlur = usePreferencesStore((s) => s.backgroundBlur);
+  const opacity = override?.opacity ?? prefOpacity;
+  const blur = override?.blur ?? prefBlur;
   const [state, setState] = useState<{ url: string; animated: boolean } | null>(
     null,
   );

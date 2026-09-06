@@ -64,6 +64,7 @@ import {
   RemotePrompts,
   RemotesPanel,
   useRemotesStore,
+  useRemoteSurface,
   useRemoteWorkspaceStore,
   type RemoteProfile,
 } from "@/modules/remotes";
@@ -361,6 +362,9 @@ export default function App() {
   const { hasComposer, keysLoaded } = useAiBootstrap();
 
   const activeTab = tabs.find((t) => t.id === activeId);
+  useRemoteSurface(
+    activeTab?.kind === "terminal" ? activeTab.remoteId : undefined,
+  );
   const isTerminalTab = activeTab?.kind === "terminal";
   const isBlockTab = activeTerminalTab?.blocks === true;
   const isEditorTab = activeTab?.kind === "editor";
@@ -1204,6 +1208,11 @@ export default function App() {
     [updateTab],
   );
 
+  const hostColor = useCallback(
+    (remoteId: string) => remoteProfiles.find((p) => p.id === remoteId)?.color,
+    [remoteProfiles],
+  );
+
   const handleRecolorTab = useCallback(
     (id: number, color: string) =>
       updateTab(id, { color: color ? (normalizeAccent(color) ?? "") : "" }),
@@ -1491,6 +1500,7 @@ export default function App() {
               onPin={pinTab}
               onRename={handleRenameTab}
           onRecolor={handleRecolorTab}
+          hostColor={hostColor}
               onReorder={reorderTabByGap}
               onToggleSidebar={toggleSidebar}
               onOpenCommandPalette={() => openCommandPalette("commands")}

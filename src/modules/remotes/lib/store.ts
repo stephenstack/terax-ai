@@ -2,6 +2,7 @@ import { LazyStore } from "@tauri-apps/plugin-store";
 import { emit, listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import { nextGroupOrder } from "./tree";
+import { normalizeVisuals } from "./visuals";
 import type { RemoteGroup, RemoteProfile } from "./types";
 
 const STORE_PATH = "terax-remotes.json";
@@ -49,6 +50,7 @@ function normalize(profiles: RemoteProfile[]): RemoteProfile[] {
     jumps: p.jumps ?? [],
     forwards: p.forwards ?? [],
     appearance: p.appearance ?? {},
+    ...normalizeVisuals(p),
   }));
 }
 
@@ -123,9 +125,16 @@ export const useRemotesStore = create<State>((set, get) => ({
 
   deleteProfile: async (id) => {
     const { profiles, groups } = get();
+    const removed = profiles.find((p) => p.id === id);
     const updated = profiles.filter((p) => p.id !== id);
     set({ profiles: updated });
     await persist(updated, groups);
+    // Nothing names the blob once the profile is gone.
+    const imageId = removed?.background?.imageId;
+    if (imageId) {
+      const { deleteBgImage } = await import("@/modules/theme/bgImageStore");
+      await deleteBgImage(imageId).catch(() => undefined);
+    }
   },
 
   addProfiles: async (incoming) => {
