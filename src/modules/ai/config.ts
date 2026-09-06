@@ -1,4 +1,6 @@
-export const KEYRING_SERVICE = "terax-ai";
+// Channel-scoped: a preview build must never touch a stable install's keys.
+// See src/lib/channel.ts, and secrets::scope_service for the enforcing side.
+export { KEYRING_SERVICE } from "@/lib/channel";
 
 export type ProviderId =
   | "openai"
@@ -109,7 +111,8 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     label: "MLX",
     keyringAccount: "",
     keyPrefix: null,
-    consoleUrl: "https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/SERVER.md",
+    consoleUrl:
+      "https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/SERVER.md",
   },
   {
     id: "ollama",

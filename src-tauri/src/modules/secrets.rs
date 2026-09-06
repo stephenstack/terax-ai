@@ -21,6 +21,128 @@ use std::sync::Mutex;
 
 use tauri::AppHandle;
 
+use crate::modules::channel;
+
+/// Service name a stable build stores every secret under.
+pub const STABLE_SERVICE: &str = "terax-ai";
+/// Service name a preview build stores every secret under. Deliberately
+/// unrelated to [`STABLE_SERVICE`] so the two never collide in the OS keychain.
+pub const PREVIEW_SERVICE: &str = "terax-ssh-preview";
+
+/// Maps a service name requested by the webview onto this build's namespace.
+///
+/// A preview is a separate, unofficial application that happens to share a user
+/// account with a stable install, so it must never read, write or delete that
+/// install's credentials. The decision is made here, at the IPC boundary,
+/// rather than trusted from the frontend: a webview asking for `terax-ai` is
+/// stating a request, not holding a permission.
+///
+/// Total by construction rather than an allow-list, so a future secret helper
+/// that picks its own service name is namespaced too instead of silently
+/// escaping into the stable keychain.
+pub fn scope_service(requested: &str, preview: bool) -> String {
+    if !preview {
+        return requested.to_string();
+    }
+    if requested == STABLE_SERVICE {
+        return PREVIEW_SERVICE.to_string();
+    }
+    format!("{PREVIEW_SERVICE}.{requested}")
+}
+
+fn service_for_build(requested: &str) -> String {
+    scope_service(requested, channel::is_preview())
+}
+
+/// Credential isolation between a stable install and a preview install. These
+/// run on every platform because the invariant is about the service name, not
+/// about which backend stores it.
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    /// Every service name the app is known to ask for, plus the awkward ones.
+    const SAMPLES: &[&str] = &[
+        STABLE_SERVICE,
+        PREVIEW_SERVICE,
+        "",
+        " ",
+        "terax",
+        "terax-ai-extra",
+        "TERAX-AI",
+        "terax-ai/../terax-ai",
+        "terax::ai",
+    ];
+
+    #[test]
+    fn stable_service_name_is_unchanged() {
+        assert_eq!(STABLE_SERVICE, "terax-ai");
+        for raw in SAMPLES {
+            assert_eq!(
+                scope_service(raw, false),
+                *raw,
+                "stable must not rewrite {raw:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn preview_uses_its_own_service_name() {
+        assert_eq!(PREVIEW_SERVICE, "terax-ssh-preview");
+        assert_ne!(STABLE_SERVICE, PREVIEW_SERVICE);
+        assert_eq!(scope_service(STABLE_SERVICE, true), PREVIEW_SERVICE);
+    }
+
+    #[test]
+    fn preview_never_resolves_to_the_stable_service() {
+        for raw in SAMPLES {
+            let scoped = scope_service(raw, true);
+            assert_ne!(
+                scoped, STABLE_SERVICE,
+                "preview reached the stable keychain via {raw:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn preview_namespaces_an_unknown_service_rather_than_passing_it_through() {
+        assert_eq!(
+            scope_service("some-future-helper", true),
+            "terax-ssh-preview.some-future-helper"
+        );
+    }
+
+    proptest! {
+        /// The load-bearing property: whatever the webview asks for, a preview
+        /// build and a stable build never address the same credential.
+        #[test]
+        fn preview_and_stable_never_agree(raw in r".{0,64}") {
+            prop_assert_ne!(scope_service(&raw, true), scope_service(&raw, false));
+        }
+
+        #[test]
+        fn preview_never_yields_the_stable_service(raw in r".{0,64}") {
+            prop_assert_ne!(scope_service(&raw, true), STABLE_SERVICE.to_string());
+        }
+
+        #[test]
+        fn stable_is_the_identity(raw in r".{0,64}") {
+            prop_assert_eq!(scope_service(&raw, false), raw);
+        }
+    }
+
+    #[test]
+    fn compiled_build_resolves_through_its_own_channel() {
+        let expected = if channel::is_preview() {
+            PREVIEW_SERVICE
+        } else {
+            STABLE_SERVICE
+        };
+        assert_eq!(service_for_build(STABLE_SERVICE), expected);
+    }
+}
+
 #[cfg(target_os = "linux")]
 use std::collections::HashMap;
 #[cfg(target_os = "linux")]
@@ -119,6 +241,9 @@ pub async fn secrets_get(
     service: String,
     account: String,
 ) -> Result<Option<String>, String> {
+    // Shadowed immediately so the raw, webview-supplied name is unreachable
+    // below: every backend path uses this build's namespace or none at all.
+    let service = service_for_build(&service);
     #[cfg(target_os = "linux")]
     {
         let _ = state; // capture
@@ -145,6 +270,9 @@ pub async fn secrets_set(
     account: String,
     password: String,
 ) -> Result<(), String> {
+    // Shadowed immediately so the raw, webview-supplied name is unreachable
+    // below: every backend path uses this build's namespace or none at all.
+    let service = service_for_build(&service);
     #[cfg(target_os = "linux")]
     {
         let key = key(&service, &account);
@@ -172,6 +300,9 @@ pub async fn secrets_delete(
     service: String,
     account: String,
 ) -> Result<(), String> {
+    // Shadowed immediately so the raw, webview-supplied name is unreachable
+    // below: every backend path uses this build's namespace or none at all.
+    let service = service_for_build(&service);
     #[cfg(target_os = "linux")]
     {
         let key = key(&service, &account);
@@ -283,6 +414,9 @@ pub async fn secrets_get_all(
     service: String,
     accounts: Vec<String>,
 ) -> Result<Vec<Option<String>>, String> {
+    // Shadowed immediately so the raw, webview-supplied name is unreachable
+    // below: every backend path uses this build's namespace or none at all.
+    let service = service_for_build(&service);
     #[cfg(target_os = "linux")]
     {
         with_store(&app, &state, |m| {

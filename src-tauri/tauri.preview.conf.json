@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Terax SSH Preview",
+  "version": "0.8.6-ssh.1",
+  "identifier": "io.github.stephenstack.terax.sshpreview",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Terax SSH Preview (unofficial)",
+        "decorations": false,
+        "transparent": true,
+        "visible": false,
+        "shadow": false
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": false,
+    "publisher": "Stephen Stack (unofficial Terax fork)",
+    "copyright": "Unofficial preview build by Stephen Stack. Terax is Copyright 2026 Crynta.",
+    "shortDescription": "Unofficial SSH preview build of Terax",
+    "longDescription": "Terax SSH Preview - an unofficial, unsigned preview build from Stephen Stack's fork of Terax, published to test SSH remote sessions and remote workspaces. Not affiliated with or supported by Crynta. Installs alongside Terax and never auto-updates.",
+    "fileAssociations": [],
+    "windows": {
+      "nsis": {
+        "installerHooks": "./installer-hooks.preview.nsh"
+      }
+    }
+  },
+  "plugins": {
+    "updater": null
+  }
+}

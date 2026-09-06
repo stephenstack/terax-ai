@@ -19,6 +19,10 @@ If a guide conflicts with `TERAX.md`, `TERAX.md` wins.
 - [SSH and remote workspaces](ssh-remote.md) - hosts and groups, authentication, host keys, jump hosts, port forwards, remote workspaces, and how to test against a real server.
 - [CLI control plane](architecture/cli-control.md) - bundled CLI, authenticated local protocol, caller targeting, packaging, and current platform limits.
 
+## Releases
+
+- [Terax SSH Preview (unofficial)](SSH_PREVIEW.md) - the unsigned Windows preview build from Stephen Stack's fork: what it contains, how to verify and install it, how to test SSH against a real server, and how the auto-updater is disabled.
+
 ## Contributing guides
 
 - [Testing](contributing/testing.md) - the testing contract, how to run checks, and what makes a good core-subsystem test.

@@ -1,6 +1,21 @@
 fn main() {
+    configure_channel();
     configure_sidecar();
     tauri_build::build()
+}
+
+/// Baked in with `rustc-env` rather than read through `option_env!` so a
+/// changed channel is part of the build script output and actually forces a
+/// recompile. Sanitized because the value lands in a `cargo:` directive.
+fn configure_channel() {
+    println!("cargo:rerun-if-env-changed=TERAX_CHANNEL");
+    let channel: String = std::env::var("TERAX_CHANNEL")
+        .unwrap_or_default()
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    println!("cargo:rustc-env=TERAX_CHANNEL={channel}");
 }
 
 fn configure_sidecar() {

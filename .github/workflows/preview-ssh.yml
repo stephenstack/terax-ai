@@ -1,0 +1,299 @@
+# Unofficial SSH preview. Builds one unsigned Windows NSIS installer from
+# Stephen Stack's fork and publishes it as a GitHub prerelease.
+#
+# Deliberately separate from release.yml: the tag pattern cannot match `v*`, so
+# cutting a preview never triggers the signed production release. Nothing here
+# touches SignPath, the minisign updater key, or latest.json.
+name: SSH Preview (unofficial)
+
+on:
+  push:
+    tags:
+      - "preview-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-ssh-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Read by src-tauri/build.rs (baked in with rustc-env) and by Vite. Only an
+  # exact `preview` disables the updater and moves the keychain service; any
+  # other value builds a stable app.
+  TERAX_CHANNEL: preview
+  VITE_TERAX_CHANNEL: preview
+  # Branch the preview is cut from, named in the release notes. Verified below
+  # against the tagged commit, so the notes cannot claim a branch the build did
+  # not come from. Change this if the preview ever moves branches.
+  PREVIEW_SOURCE_BRANCH: feat/ssh-remote-sessions
+
+jobs:
+  windows-preview:
+    name: Windows NSIS (unsigned)
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      # Full history: the branch assertion below needs to see which branches
+      # contain the tagged commit.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+          key: preview-windows
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The tag names the version users see; the bundle takes its version from
+      # the preview config. A mismatch would ship an installer that disagrees
+      # with its own release, so it fails here rather than after a long build.
+      - name: Check the tag agrees with the preview config version
+        if: startsWith(github.ref, 'refs/tags/preview-v')
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = "${{ github.ref_name }}"
+          $fromTag = $tag -replace '^preview-v', ''
+          $config = Get-Content src-tauri/tauri.preview.conf.json -Raw | ConvertFrom-Json
+          if ($fromTag -ne $config.version) {
+            throw "tag $tag implies version '$fromTag' but tauri.preview.conf.json is '$($config.version)'"
+          }
+          Write-Host "OK version $fromTag"
+          "PREVIEW_VERSION=$fromTag" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Resolve version for a manual run
+        if: ${{ !startsWith(github.ref, 'refs/tags/preview-v') }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $config = Get-Content src-tauri/tauri.preview.conf.json -Raw | ConvertFrom-Json
+          "PREVIEW_VERSION=$($config.version)" | Out-File $env:GITHUB_ENV -Append
+
+      # The release notes state which branch the build came from. Assert it
+      # rather than trust it, so the published provenance is a fact.
+      - name: Verify the tagged commit is on the declared source branch
+        if: startsWith(github.ref, 'refs/tags/preview-v')
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $branch = $env:PREVIEW_SOURCE_BRANCH
+          $contains = git branch -r --contains $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw "git branch --contains failed" }
+          if (-not ($contains -match "origin/$([regex]::Escape($branch))(\s|$)")) {
+            throw "commit $env:GITHUB_SHA is not on origin/$branch; update PREVIEW_SOURCE_BRANCH"
+          }
+          Write-Host "OK commit is on origin/$branch"
+
+      # Achievable gates only. Deliberately excluded, and why:
+      #   - repo-wide `cargo fmt --check` and `cargo clippy -D warnings` both
+      #     fail on pre-existing upstream code, and on Windows-only cfg arms
+      #     that upstream CI (ubuntu) never compiles. Repairing unrelated code
+      #     is not this workflow's job, so formatting is enforced on the files
+      #     this preview owns instead.
+      #   - `pnpm test` and `cargo test` in full both carry a pre-existing
+      #     failure. The preview-specific suites below are run in full.
+      - name: Lint and type-check
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          pnpm lint
+          if ($LASTEXITCODE -ne 0) { throw "pnpm lint failed" }
+          pnpm check-types
+          if ($LASTEXITCODE -ne 0) { throw "pnpm check-types failed" }
+
+      - name: Rust format and check
+        shell: pwsh
+        working-directory: src-tauri
+        run: |
+          $ErrorActionPreference = "Stop"
+          rustfmt --edition 2021 --check build.rs src/modules/channel.rs tests/preview_config.rs
+          if ($LASTEXITCODE -ne 0) { throw "preview-owned Rust files are not rustfmt-clean" }
+          cargo check --all-targets --locked
+          if ($LASTEXITCODE -ne 0) { throw "cargo check failed" }
+
+      # Exit codes are checked by hand: the pwsh shell only propagates the last
+      # command's status, so a failure in any earlier line would pass silently.
+      - name: Guard the updater disablement and credential isolation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          pnpm exec vitest run src/lib/channel.test.ts
+          if ($LASTEXITCODE -ne 0) { throw "frontend channel tests failed" }
+          Push-Location src-tauri
+          cargo test --locked --test preview_config
+          if ($LASTEXITCODE -ne 0) { throw "preview config tests failed" }
+          cargo test --locked --lib modules::channel
+          if ($LASTEXITCODE -ne 0) { throw "channel module tests failed" }
+          cargo test --locked --lib modules::secrets
+          if ($LASTEXITCODE -ne 0) { throw "keychain isolation tests failed" }
+          Pop-Location
+
+      - name: Build unsigned preview installer
+        run: pnpm tauri build --config src-tauri/tauri.preview.conf.json
+
+      # A preview that produced a .sig or a latest.json could be served to a
+      # stable install as a real update, so their absence is asserted, not
+      # assumed. The binary is also searched for the production updater
+      # endpoint and public key: the preview config strips `plugins.updater`,
+      # and Tauri embeds the merged config in the executable, so neither string
+      # can survive into a correct preview build. The stable keychain service
+      # name must be absent for the same reason.
+      - name: Assert the build carries no updater and no stable keychain name
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bundle = "src-tauri/target/release/bundle"
+          $stray = Get-ChildItem $bundle -Recurse -Include *.sig, latest.json -ErrorAction SilentlyContinue
+          if ($stray) { throw "preview build produced updater artifacts: $($stray.FullName -join ', ')" }
+
+          $exe = Get-ChildItem "$bundle/nsis" -Filter *.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) { throw "no NSIS installer produced" }
+
+          $binary = Get-ChildItem src-tauri/target/release -Filter terax.exe | Select-Object -First 1
+          if (-not $binary) { throw "no terax.exe produced" }
+          $bytes = [System.IO.File]::ReadAllBytes($binary.FullName)
+          $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+          foreach ($needle in @(
+            "releases/latest/download/latest.json",
+            "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6"
+          )) {
+            if ($text.Contains($needle)) {
+              throw "preview binary still embeds updater configuration: $needle"
+            }
+          }
+          if (-not $text.Contains("terax-ssh-preview")) {
+            throw "preview binary does not carry the preview keychain service name"
+          }
+          Write-Host "OK no updater endpoint, key, signature or manifest"
+          Write-Host "OK preview keychain namespace present"
+
+      # Renamed off the space-separated product name so the download URL and
+      # the checksum commands in docs/SSH_PREVIEW.md stay copy-pasteable.
+      - name: Stage installer and checksum
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = Get-ChildItem "src-tauri/target/release/bundle/nsis" -Filter *.exe | Select-Object -First 1
+          New-Item -ItemType Directory -Path dist-preview -Force | Out-Null
+          $name = "Terax-SSH-Preview_${env:PREVIEW_VERSION}_x64-setup.exe"
+          Copy-Item $exe.FullName "dist-preview/$name"
+          $hash = (Get-FileHash "dist-preview/$name" -Algorithm SHA256).Hash.ToLower()
+          # sha256sum -c format, so Git Bash and WSL verify the file directly.
+          "$hash  $name" | Out-File "dist-preview/$name.sha256" -Encoding ascii
+          "INSTALLER_NAME=$name" | Out-File $env:GITHUB_ENV -Append
+          "INSTALLER_SHA256=$hash" | Out-File $env:GITHUB_ENV -Append
+          Write-Host "$name  $hash"
+
+      # Runs for a manual dispatch too: a dispatch may produce a downloadable
+      # artifact, but never a Release.
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: terax-ssh-preview-windows
+          path: dist-preview/
+          if-no-files-found: error
+
+      # Only a pushed `preview-v*` tag may publish. `github.event_name` is
+      # checked alongside the ref so a workflow_dispatch can never create a
+      # Release, even if dispatched against a tag ref.
+      #
+      # `gh release create` deliberately fails if the tag already has a release.
+      # Republishing means deleting the release and the tag first, so an
+      # installer someone already downloaded is never silently replaced.
+      - name: Publish prerelease
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/preview-v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = "${{ github.ref_name }}"
+          $notes = @(
+            "Unofficial SSH preview build of Terax from Stephen Stack's fork. Not affiliated",
+            "with, endorsed by, or supported by Crynta. Do not report problems from this build",
+            "to the upstream Terax project.",
+            "",
+            "## Build provenance",
+            "",
+            "- Tag: $tag",
+            "- Source branch: $env:PREVIEW_SOURCE_BRANCH",
+            "- Commit SHA: $env:GITHUB_SHA",
+            "- Workflow run: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID",
+            "",
+            "## What this is",
+            "",
+            "- Application: Terax SSH Preview",
+            "- Identifier: io.github.stephenstack.terax.sshpreview",
+            "- Version: $env:PREVIEW_VERSION",
+            "- Platform: Windows x64, NSIS installer, per-user install (no admin required)",
+            "- Auto-update: disabled. This build never checks for or installs updates.",
+            "- Code signing: none. Windows SmartScreen warns on first run.",
+            "",
+            "Installs alongside a stable Terax rather than replacing it: separate identifier,",
+            "install directory, Start Menu entry, application data and OS keychain namespace.",
+            "",
+            "## Credentials are not shared with stable Terax",
+            "",
+            "This build stores secrets under the keychain service ``terax-ssh-preview``; a",
+            "stable Terax uses ``terax-ai``. Nothing is imported. You must enter API keys",
+            "again here, and keys you enter here are invisible to a stable install. SSH",
+            "passwords and key passphrases are never stored by either build; they are",
+            "prompted for on every connection.",
+            "",
+            "## Verify the download before running it",
+            "",
+            "PowerShell:",
+            "",
+            "    Get-FileHash .\$env:INSTALLER_NAME -Algorithm SHA256",
+            "",
+            "Expected SHA256:",
+            "",
+            "    $env:INSTALLER_SHA256",
+            "",
+            "## Testing steps",
+            "",
+            "1. Install Terax SSH Preview.",
+            "2. Open the remote SSH connection screen (the Remotes panel in the activity bar).",
+            "3. Connect only to a non-production test host. Never point this build at",
+            "   production infrastructure.",
+            "4. Open a remote terminal against that host.",
+            "5. Confirm command execution (``hostname``, ``whoami``), then disconnect and",
+            "   reconnect, and confirm the session comes back cleanly.",
+            "6. Report preview-specific problems in stephenstack/terax-ai, not upstream:",
+            "   $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/issues",
+            "",
+            "Include the version above, your Windows version, the remote server OS and SSH",
+            "version, and the authentication method you used.",
+            "",
+            "docs/SSH_PREVIEW.md in this repository has the fuller guide: what is",
+            "experimental, the SmartScreen warning, known limitations and the security",
+            "warning. The steps above are the minimum and do not depend on it."
+          ) -join "`n"
+          $notes | Out-File release-notes.md -Encoding utf8
+          gh release create $tag `
+            "dist-preview/$env:INSTALLER_NAME" `
+            "dist-preview/$env:INSTALLER_NAME.sha256" `
+            --repo $env:GITHUB_REPOSITORY `
+            --title "Terax SSH Preview $env:PREVIEW_VERSION (unofficial)" `
+            --notes-file release-notes.md `
+            --prerelease

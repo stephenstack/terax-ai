@@ -3,8 +3,8 @@ pub mod modules;
 #[cfg(target_os = "macos")]
 use modules::app_menu;
 use modules::{
-    agent, control, fs, git, history, lsp, net, pty, remote, secrets, shell, ssh, vibrancy,
-    workspace,
+    agent, channel, control, fs, git, history, lsp, net, pty, remote, secrets, shell, ssh,
+    vibrancy, workspace,
 };
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -192,9 +192,16 @@ pub fn run() {
     let builder = builder
         .menu(app_menu::build)
         .on_menu_event(app_menu::handle_event);
+    let builder = builder.plugin(tauri_plugin_process::init());
+    // Preview builds carry no auto-updater: the plugin is never registered and
+    // `plugins.updater` is stripped from their config, which the plugin requires,
+    // so there is no endpoint to reach and no command to call.
+    let builder = if channel::updater_is_enabled() {
+        builder.plugin(tauri_plugin_updater::Builder::new().build())
+    } else {
+        builder
+    };
     builder
-        .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         // Skip restoring VISIBLE — frontend calls window.show() after first
         // paint so the user never sees a transparent window-shadow flash on
         // Windows/Linux.

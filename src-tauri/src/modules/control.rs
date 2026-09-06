@@ -16,7 +16,7 @@ use terax_control_protocol::{
     METHOD_PING, PROTOCOL_VERSION, SERVER_RESPONSE_ID,
 };
 
-use crate::modules::{fs, workspace};
+use crate::modules::{channel, fs, workspace};
 
 const CONTROL_EVENT: &str = "terax:control-request";
 const FRONTEND_TIMEOUT: Duration = Duration::from_secs(5);
@@ -569,7 +569,7 @@ fn generate_token() -> Result<String, String> {
 fn descriptor_path() -> Result<PathBuf, String> {
     let cache =
         dirs::cache_dir().ok_or_else(|| "could not resolve user cache directory".to_string())?;
-    let dir = cache.join("terax");
+    let dir = cache.join(channel::control_dir());
     std::fs::create_dir_all(&dir)
         .map_err(|error| format!("create control directory {}: {error}", dir.display()))?;
     #[cfg(unix)]

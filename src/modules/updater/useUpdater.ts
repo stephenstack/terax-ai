@@ -1,8 +1,9 @@
+import { UPDATER_ENABLED } from "@/lib/channel";
+import { IS_LINUX } from "@/lib/platform";
 import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useCallback, useEffect, useState } from "react";
-import { IS_LINUX } from "@/lib/platform";
 
 const LAST_CHECK_KEY = "terax:updater:last-check";
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
@@ -18,6 +19,8 @@ export interface ManualUpdateInfo {
 
 export type UpdaterStatus =
   | { kind: "idle" }
+  /** Preview build: no updater plugin is registered, so nothing is ever asked. */
+  | { kind: "disabled" }
   | { kind: "checking" }
   | { kind: "uptodate" }
   | { kind: "available"; update: Update }
@@ -82,9 +85,12 @@ interface HookOptions {
 }
 
 export function useUpdater({ autoCheck = true }: HookOptions = {}) {
-  const [status, setStatus] = useState<UpdaterStatus>({ kind: "idle" });
+  const [status, setStatus] = useState<UpdaterStatus>(
+    UPDATER_ENABLED ? { kind: "idle" } : { kind: "disabled" },
+  );
 
   const runCheck = useCallback(async ({ manual }: Options = {}) => {
+    if (!UPDATER_ENABLED) return;
     if (!manual) {
       const last = Number(localStorage.getItem(LAST_CHECK_KEY) ?? 0);
       if (Date.now() - last < CHECK_INTERVAL_MS) return;
@@ -142,11 +148,11 @@ export function useUpdater({ autoCheck = true }: HookOptions = {}) {
   }, [status]);
 
   const dismiss = useCallback(() => {
-    setStatus({ kind: "idle" });
+    setStatus(UPDATER_ENABLED ? { kind: "idle" } : { kind: "disabled" });
   }, []);
 
   useEffect(() => {
-    if (!autoCheck) return;
+    if (!UPDATER_ENABLED || !autoCheck) return;
     void runCheck();
   }, [autoCheck, runCheck]);
 

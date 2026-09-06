@@ -1,14 +1,20 @@
 import { Button } from "@/components/ui/button";
+import {
+  IS_PREVIEW_BUILD,
+  PREVIEW_NOTICE,
+  REPO_LABEL,
+  REPO_URL,
+  UPDATER_ENABLED,
+} from "@/lib/channel";
 import { useUpdater } from "@/modules/updater";
 import { GithubIcon, Globe02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { getName, getVersion } from "@tauri-apps/api/app";
+import { getIdentifier, getName, getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { arch, platform } from "@tauri-apps/plugin-os";
 import { useEffect, useState } from "react";
 import { SectionHeader } from "../components/SectionHeader";
 
-const REPO_URL = "https://github.com/crynta/terax-ai";
 const WEBSITE = "https://terax.app";
 
 const PLATFORM_LABEL: Record<string, string> = {
@@ -23,6 +29,7 @@ const PLATFORM_LABEL: Record<string, string> = {
 export function AboutSection() {
   const [version, setVersion] = useState("");
   const [name, setName] = useState("Terax");
+  const [identifier, setIdentifier] = useState("");
   const [build, setBuild] = useState("");
   const { status, check, install } = useUpdater({ autoCheck: false });
   const checking = status.kind === "checking";
@@ -30,8 +37,9 @@ export function AboutSection() {
   const available = status.kind === "available";
   const manualAvailable = status.kind === "manual-available";
   const ready = status.kind === "ready";
-  const checkLabel =
-    status.kind === "uptodate"
+  const checkLabel = !UPDATER_ENABLED
+    ? "Updates disabled in preview builds"
+    : status.kind === "uptodate"
       ? "You're up to date"
       : status.kind === "error"
         ? "Check failed — retry"
@@ -47,6 +55,7 @@ export function AboutSection() {
                   ? `Update to v${status.info.version}`
                   : "Check for updates";
   const onUpdateClick = () => {
+    if (!UPDATER_ENABLED) return;
     if (available) void install();
     else void check({ manual: true });
   };
@@ -54,6 +63,9 @@ export function AboutSection() {
   useEffect(() => {
     void getVersion().then(setVersion);
     void getName().then(setName);
+    void getIdentifier()
+      .then(setIdentifier)
+      .catch(() => {});
     try {
       const p = platform();
       const a = arch();
@@ -67,6 +79,12 @@ export function AboutSection() {
   return (
     <div className="flex flex-col gap-6">
       <SectionHeader title="About" description="" />
+
+      {IS_PREVIEW_BUILD && (
+        <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5 text-[11.5px] leading-relaxed text-amber-900 dark:text-amber-200">
+          {PREVIEW_NOTICE}
+        </p>
+      )}
 
       <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-card/60 p-5">
         <img src="/logo.png" alt="" className="size-12" draggable={false} />
@@ -90,7 +108,12 @@ export function AboutSection() {
         </dd>
 
         <dt className="text-muted-foreground">Bundle ID</dt>
-        <dd className="font-mono text-[11.5px]">app.crynta.terax</dd>
+        <dd className="font-mono text-[11.5px]">{identifier || "unknown"}</dd>
+
+        <dt className="text-muted-foreground">Channel</dt>
+        <dd className="text-[12px]">
+          {IS_PREVIEW_BUILD ? "Preview (unofficial, no updates)" : "Stable"}
+        </dd>
 
         <dt className="text-muted-foreground">License</dt>
         <dd>Apache 2.0</dd>
@@ -103,7 +126,7 @@ export function AboutSection() {
             className="inline-flex items-center gap-1.5 rounded-md text-[12px] underline-offset-2 hover:text-foreground hover:underline"
           >
             <HugeiconsIcon icon={GithubIcon} size={12} strokeWidth={1.75} />
-            crynta/terax-ai
+            {REPO_LABEL}
           </button>
         </dd>
         <dt className="text-muted-foreground">Website</dt>
@@ -124,7 +147,7 @@ export function AboutSection() {
           <Button
             size="sm"
             onClick={onUpdateClick}
-            disabled={checking || downloading || ready}
+            disabled={!UPDATER_ENABLED || checking || downloading || ready}
           >
             {checkLabel}
           </Button>

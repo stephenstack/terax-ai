@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
+import { UPDATER_ENABLED } from "@/lib/channel";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useState } from "react";
 import { useUpdater } from "./useUpdater";
@@ -46,10 +47,11 @@ export function UpdaterDialog() {
   const activeCommand = distroCommand(distro, manualVersion);
 
   const open =
-    status.kind === "available" ||
-    status.kind === "manual-available" ||
-    status.kind === "downloading" ||
-    status.kind === "ready";
+    UPDATER_ENABLED &&
+    (status.kind === "available" ||
+      status.kind === "manual-available" ||
+      status.kind === "downloading" ||
+      status.kind === "ready");
 
   if (!open) return null;
 
@@ -163,10 +165,7 @@ export function UpdaterDialog() {
               <Button variant="ghost" size="sm" onClick={dismiss}>
                 Later
               </Button>
-              <Button
-                size="sm"
-                onClick={() => void openUrl(manual.releaseUrl)}
-              >
+              <Button size="sm" onClick={() => void openUrl(manual.releaseUrl)}>
                 Download package
               </Button>
             </>
