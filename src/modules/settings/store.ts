@@ -605,9 +605,13 @@ export async function setThemeId(value: string): Promise<void> {
   await writePref(KEY_THEME_ID, value);
 }
 
-/** Slider stores 0..1. Actual rendered opacity is halved in SurfaceLayer
- *  so the image never exceeds 50% — keeps UI/terminal readable at any setting. */
-export const BG_OPACITY_RENDER_FACTOR = 0.5;
+/**
+ * The main window renders the background at exactly the opacity the slider
+ * shows. The settings window does not: its own background would otherwise be
+ * able to hide the slider that turns it back down, leaving no way out without
+ * editing preferences by hand.
+ */
+export const BG_OPACITY_SETTINGS_MAX = 0.5;
 
 function clampBgOpacity(v: number): number {
   if (!Number.isFinite(v)) return 0.7;

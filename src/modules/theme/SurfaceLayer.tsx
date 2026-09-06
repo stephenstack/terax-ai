@@ -2,7 +2,7 @@ import {
   readBgFastPath,
   usePreferencesStore,
 } from "@/modules/settings/preferences";
-import { BG_OPACITY_RENDER_FACTOR } from "@/modules/settings/store";
+import { BG_OPACITY_SETTINGS_MAX } from "@/modules/settings/store";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -77,7 +77,7 @@ function BackgroundImage({ fastImageId }: { fastImageId: string | null }) {
   const suspendAnimated = animated && (resizing || docHidden);
   const blurActive = !animated && blur > 0 && !resizing;
   const renderedOpacity =
-    visible && !suspendAnimated ? opacity * BG_OPACITY_RENDER_FACTOR : 0;
+    visible && !suspendAnimated ? Math.min(opacity, opacityCeiling()) : 0;
 
   return createPortal(
     <div
@@ -99,6 +99,16 @@ function BackgroundImage({ fastImageId }: { fastImageId: string | null }) {
     />,
     document.body,
   );
+}
+
+/**
+ * The settings window caps its own background so it can never hide the
+ * opacity slider. Every other window honours the setting exactly.
+ */
+function opacityCeiling(): number {
+  return document.getElementById("settings-root")
+    ? BG_OPACITY_SETTINGS_MAX
+    : 1;
 }
 
 function useWindowResizing(idleMs: number): boolean {
