@@ -329,6 +329,21 @@ function createSlot(): Slot {
     // pressed inside an active IME session when isComposing is not yet set.
     if (event.isComposing || event.keyCode === 229) return false;
 
+    // Before every other branch: the checks below return early for cases the
+    // suggestion still applies to, and gating it behind them is what made it
+    // appear to work on one kind of session and not another.
+    if (event.type === "keydown") {
+      try {
+        if (slot.suggest?.onKey(event)) {
+          event.preventDefault();
+          return false;
+        }
+      } catch {
+        // One bad key is not a reason to disable it for the life of a slot,
+        // which is pooled and outlives the session that broke it.
+      }
+    }
+
     const leafId = slot.currentLeafId;
     if (leafId === null) return false;
     const bridge = adapter?.resolveLeaf(leafId);
@@ -347,19 +362,6 @@ function createSlot(): Slot {
       if (event.type === "keydown") bridge.writeToPty("\x1b\r");
       return false;
     }
-    // Ahead of the chords: accepting a suggestion is a plain arrow key, and
-    // must not reach the shell as cursor movement.
-    if (event.type === "keydown") {
-      try {
-        if (slot.suggest?.onKey(event)) {
-          event.preventDefault();
-          return false;
-        }
-      } catch {
-        slot.suggest = null;
-      }
-    }
-
     const plainCopy = isPlainCopy(event, slot.term.hasSelection());
     if (isTerminalCopy(event) || plainCopy) {
       if (event.type === "keydown" && slot.term.hasSelection()) {
