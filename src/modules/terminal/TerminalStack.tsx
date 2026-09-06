@@ -1,11 +1,17 @@
 import type { Tab } from "@/modules/tabs";
+import { BackgroundImageLayer } from "@/modules/theme";
 import type { TerminalAppearanceOverride } from "./lib/appearanceOverride";
+import type { TerminalBackground } from "./lib/terminalBackground";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useEffect, useMemo, useRef } from "react";
 import { selectLiveTerminals } from "./lib/liveTerminals";
 import { leafIds } from "./lib/panes";
 import { PaneTreeView } from "./PaneTreeView";
 import type { TerminalPaneHandle } from "./TerminalPane";
+
+// Above the panes so it tints the terminal the way the app-wide layer tints
+// the window. Never interactive.
+const BG_Z = 20;
 
 type Props = {
   tabs: Tab[];
@@ -19,6 +25,9 @@ type Props = {
   /** Appearance overrides by remote profile id, supplied by the coordinator so
    *  the terminal never has to depend on the remotes module. */
   remoteAppearance?: Map<string, TerminalAppearanceOverride>;
+  /** Background by remote profile id, supplied the same way and for the same
+   *  reason as remoteAppearance. */
+  remoteBackground?: Map<string, TerminalBackground>;
 };
 
 type Bundle = {
@@ -37,6 +46,7 @@ export function TerminalStack({
   onExit,
   onFocusLeaf,
   remoteAppearance,
+  remoteBackground,
 }: Props) {
   const terminals = useMemo(() => selectLiveTerminals(tabs), [tabs]);
 
@@ -85,6 +95,7 @@ export function TerminalStack({
     <div className="relative h-full w-full">
       {terminals.map((t) => {
         const tabVisible = t.id === activeId;
+        const bg = t.remoteId ? remoteBackground?.get(t.remoteId) : undefined;
         return (
           <div
             key={t.id}
@@ -96,6 +107,15 @@ export function TerminalStack({
             }}
             aria-hidden={!tabVisible}
           >
+            {bg ? (
+              <BackgroundImageLayer
+                imageId={bg.imageId}
+                opacity={bg.opacity}
+                blur={bg.blur}
+                position="absolute"
+                zIndex={BG_Z}
+              />
+            ) : null}
             <PaneTreeView
               node={t.paneTree}
               tabVisible={tabVisible}

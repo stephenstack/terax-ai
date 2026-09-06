@@ -64,8 +64,8 @@ import {
   RemotePrompts,
   RemotesPanel,
   useRemotesStore,
-  useRemoteSurface,
   useRemoteWorkspaceStore,
+  type RemoteBackground,
   type RemoteProfile,
 } from "@/modules/remotes";
 import {
@@ -362,9 +362,6 @@ export default function App() {
   const { hasComposer, keysLoaded } = useAiBootstrap();
 
   const activeTab = tabs.find((t) => t.id === activeId);
-  useRemoteSurface(
-    activeTab?.kind === "terminal" ? activeTab.remoteId : undefined,
-  );
   const isTerminalTab = activeTab?.kind === "terminal";
   const isBlockTab = activeTerminalTab?.blocks === true;
   const isEditorTab = activeTab?.kind === "editor";
@@ -692,6 +689,14 @@ export default function App() {
   const remoteAppearance = useMemo(() => {
     const map = new Map<string, RemoteProfile["appearance"]>();
     for (const p of remoteProfiles) map.set(p.id, p.appearance);
+    return map;
+  }, [remoteProfiles]);
+
+  const remoteBackground = useMemo(() => {
+    const map = new Map<string, RemoteBackground>();
+    for (const p of remoteProfiles) {
+      if (p.background) map.set(p.id, p.background);
+    }
     return map;
   }, [remoteProfiles]);
 
@@ -1609,6 +1614,7 @@ export default function App() {
                         onCwd={handleTerminalCwd}
                         onExit={handleLeafExit}
                         remoteAppearance={remoteAppearance}
+                        remoteBackground={remoteBackground}
                         onFocusLeaf={handleFocusLeaf}
                         registerEditorHandle={registerEditorHandle}
                         onEditorDirtyChange={handleEditorDirty}

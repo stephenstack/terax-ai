@@ -1,4 +1,7 @@
-import type { TerminalAppearanceOverride } from "@/modules/terminal";
+import type {
+  TerminalAppearanceOverride,
+  TerminalBackground,
+} from "@/modules/terminal";
 
 /**
  * Auth methods are tried in the order they appear on a profile, mirroring
@@ -46,12 +49,7 @@ export type ActiveForward = {
  * Background shown while one of this host's sessions is the active pane.
  * The image itself lives in the shared bgImageStore, keyed by imageId.
  */
-export type RemoteBackground = {
-  imageId: string;
-  /** 0..1, exactly as rendered. */
-  opacity: number;
-  blur: number;
-};
+export type RemoteBackground = TerminalBackground;
 
 export type RemoteProfile = {
   id: string;

@@ -39,3 +39,4 @@ export {
   type PaneNode,
   type SplitDir,
 } from "./lib/panes";
+export type { TerminalBackground } from "./lib/terminalBackground";
