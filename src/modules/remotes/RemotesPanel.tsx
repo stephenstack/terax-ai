@@ -62,6 +62,8 @@ export function RemotesPanel({
 }: Props) {
   const browserConn = useRemoteBrowserStore((s) => s.conn);
   const browserProfileId = useRemoteBrowserStore((s) => s.profileId);
+  const browserConnecting = useRemoteBrowserStore((s) => s.connecting);
+  const [filesExpanded, setFilesExpanded] = useState(true);
   const browserHost = useRemotesStore(
     (s) => s.profiles.find((p) => p.id === browserProfileId)?.name,
   );
@@ -117,6 +119,8 @@ export function RemotesPanel({
     () => buildRemoteTree(profiles, groups, query),
     [profiles, groups, query],
   );
+
+  const showFiles = browserConn !== null || browserConnecting;
 
   // Pointer-based rather than HTML5 drag: the window keeps Tauri's file-drop
   // handler on for the explorer and terminal, which takes the webview's drop
@@ -229,8 +233,19 @@ export function RemotesPanel({
         </div>
       </div>
 
-      <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
-      <ResizablePanel id="remotes-hosts" minSize="20%">
+      <PanelBody
+        filesOpen={showFiles}
+        expanded={filesExpanded}
+        files={
+          <FilesSection
+            host={browserHost}
+            expanded={filesExpanded}
+            onToggle={() => setFilesExpanded((v) => !v)}
+            onClose={() => void useRemoteBrowserStore.getState().close()}
+            onRunInTerminal={onRunInTerminal}
+          />
+        }
+      >
       <div className="h-full overflow-y-auto pb-2">
         {!hydrated ? null : profiles.length === 0 ? (
           <EmptyState
@@ -279,36 +294,7 @@ export function RemotesPanel({
           </div>
         ) : null}
       </div>
-      </ResizablePanel>
-
-      <ResizableHandle className="bg-border/60" />
-
-      <ResizablePanel
-        id="remotes-files"
-       
-        minSize="15%"
-        defaultSize="40%"
-        collapsible
-      >
-        <div className="flex h-full min-h-0 flex-col border-t border-border/40">
-          <div className="flex shrink-0 items-center justify-between gap-1 px-2.5 pb-1 pt-1.5">
-            <span className="truncate text-[10.5px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/85">
-              {browserHost ? `Files on ${browserHost}` : "Files"}
-            </span>
-            {browserConn !== null ? (
-              <IconAction
-                icon={Cancel01Icon}
-                label="Close the file browser"
-                onClick={() => void useRemoteBrowserStore.getState().close()}
-              />
-            ) : null}
-          </div>
-          <div className="min-h-0 flex-1">
-            <RemoteFiles onRunInTerminal={onRunInTerminal} />
-          </div>
-        </div>
-      </ResizablePanel>
-      </ResizablePanelGroup>
+      </PanelBody>
 
       {editing ? (
         <HostDialog
@@ -383,6 +369,98 @@ type HostDragProps = {
   draggingId: string | null;
   onDragPointerDown: (e: React.PointerEvent, id: string) => void;
 };
+
+/**
+ * The hosts list, with the file browser occupying an adjustable share beneath
+ * it. Collapsing hides only the listing: the heading stays put, because the
+ * section is dismissed with its close button rather than by shrinking it away.
+ */
+function PanelBody({
+  filesOpen,
+  expanded,
+  files,
+  children,
+}: {
+  filesOpen: boolean;
+  expanded: boolean;
+  files: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  if (!filesOpen) {
+    return <div className="min-h-0 flex-1 overflow-y-auto pb-2">{children}</div>;
+  }
+  if (!expanded) {
+    return (
+      <>
+        <div className="min-h-0 flex-1 overflow-y-auto pb-2">{children}</div>
+        {files}
+      </>
+    );
+  }
+  return (
+    <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
+      <ResizablePanel id="remotes-hosts" minSize="20%">
+        {children}
+      </ResizablePanel>
+      <ResizableHandle className="bg-border/60" />
+      <ResizablePanel id="remotes-files" minSize="15%" defaultSize="45%">
+        {files}
+      </ResizablePanel>
+    </ResizablePanelGroup>
+  );
+}
+
+function FilesSection({
+  host,
+  expanded,
+  onToggle,
+  onClose,
+  onRunInTerminal,
+}: {
+  host: string | undefined;
+  expanded: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onRunInTerminal?: (line: string) => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex min-h-0 flex-col border-t border-border/40",
+        expanded ? "h-full" : "shrink-0",
+      )}
+    >
+      <div className="flex shrink-0 items-center gap-1 px-1 pb-1 pt-1.5">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-0.5 text-left transition-colors hover:bg-accent"
+        >
+          <HugeiconsIcon
+            icon={expanded ? ArrowDown01Icon : ArrowRight01Icon}
+            size={12}
+            strokeWidth={2}
+            className="shrink-0 text-muted-foreground"
+          />
+          <span className="truncate text-[10.5px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/85">
+            {host ? `Files on ${host}` : "Files"}
+          </span>
+        </button>
+        <IconAction
+          icon={Cancel01Icon}
+          label="Close the file browser"
+          onClick={onClose}
+        />
+      </div>
+      {expanded ? (
+        <div className="min-h-0 flex-1">
+          <RemoteFiles onRunInTerminal={onRunInTerminal} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function GroupSection({
   group,
