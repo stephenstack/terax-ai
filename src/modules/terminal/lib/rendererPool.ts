@@ -342,15 +342,19 @@ function createSlot(): Slot {
       if (event.type === "keydown") bridge.writeToPty("\x1b\r");
       return false;
     }
-    if (isTerminalCopy(event)) {
+    const plainCopy = isPlainCopy(event, slot.term.hasSelection());
+    if (isTerminalCopy(event) || plainCopy) {
       if (event.type === "keydown" && slot.term.hasSelection()) {
         const sel = slot.term.getSelection();
         if (sel) void writeTerminalClipboard(sel);
+        // Dropping the selection is what lets the next Ctrl+C interrupt. Left
+        // standing, it would copy forever and the key would stop working.
+        if (plainCopy) slot.term.clearSelection();
       }
       event.preventDefault();
       return false;
     }
-    if (isTerminalPaste(event)) {
+    if (isTerminalPaste(event) || isPlainPaste(event)) {
       if (event.type === "keydown") {
         const targetLeafId = slot.currentLeafId;
         void readTerminalClipboard().then((text) => {
@@ -1155,25 +1159,45 @@ const IS_MAC =
   typeof navigator !== "undefined" &&
   /Mac|iPhone|iPad/.test(navigator.userAgent);
 
+function isKey(e: KeyboardEvent, code: string, letter: string): boolean {
+  return (
+    e.code === code ||
+    e.key === letter ||
+    e.key === letter.toUpperCase()
+  );
+}
+
 function isTerminalCopy(e: KeyboardEvent): boolean {
   return (
-    !IS_MAC &&
-    e.ctrlKey &&
-    e.shiftKey &&
-    !e.altKey &&
-    !e.metaKey &&
-    (e.code === "KeyC" || e.key === "c" || e.key === "C")
+    !IS_MAC && e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey &&
+    isKey(e, "KeyC", "c")
+  );
+}
+
+/**
+ * Plain Ctrl+C copies only while something is selected, which is how Windows
+ * Terminal behaves. With no selection it has to fall through: interrupting a
+ * running command is the more important of the two, and losing it would be a
+ * far worse trade than an extra chord.
+ */
+export function isPlainCopy(e: KeyboardEvent, hasSelection: boolean): boolean {
+  return (
+    !IS_MAC && hasSelection && e.ctrlKey && !e.shiftKey && !e.altKey &&
+    !e.metaKey && isKey(e, "KeyC", "c")
+  );
+}
+
+export function isPlainPaste(e: KeyboardEvent): boolean {
+  return (
+    !IS_MAC && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey &&
+    isKey(e, "KeyV", "v")
   );
 }
 
 function isTerminalPaste(e: KeyboardEvent): boolean {
   return (
-    !IS_MAC &&
-    e.ctrlKey &&
-    e.shiftKey &&
-    !e.altKey &&
-    !e.metaKey &&
-    (e.code === "KeyV" || e.key === "v" || e.key === "V")
+    !IS_MAC && e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey &&
+    isKey(e, "KeyV", "v")
   );
 }
 
