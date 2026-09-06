@@ -184,13 +184,29 @@ export function installRemoteOpener(): void {
       ? createEchoSuppressor(SHELL_INTEGRATION)
       : null;
     let sendIntegration: (() => void) | null = null;
+    let filter = suppress;
     const onData = (bytes: Uint8Array) => {
-      handlers.onData(suppress ? suppress(bytes) : bytes);
+      // Nothing about following the terminal is worth a dead session, and a
+      // throw in here is swallowed by the channel, which would look like a
+      // host that connected and then said nothing.
+      let out = bytes;
+      if (filter) {
+        try {
+          out = filter(bytes);
+        } catch {
+          filter = null;
+          out = bytes;
+        }
+      }
+      handlers.onData(out);
+
       // Sent once the shell has spoken, so readline draws it under the prompt
       // rather than the pty echoing it raw beforehand as well.
       const send = sendIntegration;
       sendIntegration = null;
-      send?.();
+      try {
+        send?.();
+      } catch {}
     };
 
     try {
