@@ -2,7 +2,7 @@ import { LazyStore } from "@tauri-apps/plugin-store";
 import { emit, listen } from "@tauri-apps/api/event";
 import { create } from "zustand";
 import { nextGroupOrder } from "./tree";
-import { normalizeVisuals } from "./visuals";
+import { normalizeGroupColor, normalizeVisuals } from "./visuals";
 import type { RemoteGroup, RemoteProfile } from "./types";
 
 const STORE_PATH = "terax-remotes.json";
@@ -46,6 +46,10 @@ export function emptyProfile(): RemoteProfile {
  * profile from an earlier version yields `undefined` where the UI and the
  * connect path both expect a list.
  */
+function normalizeGroups(groups: RemoteGroup[]): RemoteGroup[] {
+  return groups.map((g) => ({ ...g, color: normalizeGroupColor(g.color) }));
+}
+
 function normalize(profiles: RemoteProfile[]): RemoteProfile[] {
   return profiles.map((p) => ({
     ...p,
@@ -73,7 +77,10 @@ type State = Snapshot & {
   deleteProfile: (id: string) => Promise<void>;
   addProfiles: (profiles: RemoteProfile[]) => Promise<void>;
   createGroup: (name: string) => Promise<RemoteGroup>;
-  renameGroup: (id: string, name: string) => Promise<void>;
+  updateGroup: (
+    id: string,
+    patch: { name?: string; color?: string },
+  ) => Promise<void>;
   deleteGroup: (id: string) => Promise<void>;
   toggleGroup: (id: string) => Promise<void>;
   moveToGroup: (profileId: string, groupId: string | null) => Promise<void>;
@@ -108,7 +115,7 @@ export const useRemotesStore = create<State>((set, get) => ({
         const stored = map.get(KEY_SSH_CONFIG_PATH);
         set({
           profiles: normalize((map.get(KEY_PROFILES) as RemoteProfile[]) ?? []),
-          groups: (map.get(KEY_GROUPS) as RemoteGroup[]) ?? [],
+          groups: normalizeGroups((map.get(KEY_GROUPS) as RemoteGroup[]) ?? []),
           sshConfigPath:
             typeof stored === "string" && stored.trim()
               ? stored
@@ -118,7 +125,7 @@ export const useRemotesStore = create<State>((set, get) => ({
         void listen<Snapshot>(REMOTES_CHANGED_EVENT, (e) => {
           set({
             profiles: normalize(e.payload.profiles),
-            groups: e.payload.groups,
+            groups: normalizeGroups(e.payload.groups),
             sshConfigPath: e.payload.sshConfigPath,
           });
         });
@@ -178,11 +185,20 @@ export const useRemotesStore = create<State>((set, get) => ({
     return group;
   },
 
-  renameGroup: async (id, name) => {
+  updateGroup: async (id, patch) => {
     const { profiles, groups, sshConfigPath } = get();
-    const updated = groups.map((g) =>
-      g.id === id ? { ...g, name: name.trim() || g.name } : g,
-    );
+    const updated = groups.map((g) => {
+      if (g.id !== id) return g;
+      const name = patch.name?.trim();
+      return {
+        ...g,
+        name: name || g.name,
+        color:
+          patch.color === undefined
+            ? g.color
+            : normalizeGroupColor(patch.color),
+      };
+    });
     set({ groups: updated });
     await persist(profiles, updated, sshConfigPath);
   },

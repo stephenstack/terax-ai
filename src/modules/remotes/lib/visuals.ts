@@ -20,6 +20,12 @@ export function normalizeBackground(
   };
 }
 
+/** A group accent safe to drop into a style attribute, or undefined. */
+export function normalizeGroupColor(color: string | undefined): string | undefined {
+  if (!color) return undefined;
+  return normalizeAccent(color) ?? undefined;
+}
+
 /**
  * The store file is editable by hand and both values reach a style attribute,
  * so they are validated on the way in rather than trusted at render time.

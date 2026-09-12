@@ -10,6 +10,10 @@ profile: address, user, authentication, and whatever session and appearance
 options you want for it. Hosts can be put in groups, and a group can be
 collapsed.
 
+Right-click a group and choose **Edit group** to rename it and give it a
+colour from the same palette hosts and tabs use. A group with a colour shows a
+dot beside its name; one without is left plain.
+
 Right-click a host for:
 
 - **Open terminal** - a tab whose panes are SSH sessions on that host.

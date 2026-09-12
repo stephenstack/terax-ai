@@ -61,6 +61,9 @@ Everything in Terax 0.8.6, plus the SSH work this preview exists to exercise:
 - The export confirmation offers **Show in folder**, and the file is always
   written to the machine you are sitting at even when a remote workspace is
   open.
+- **Groups can carry a colour.** Right-click a group and choose **Edit group**
+  to set its name and colour together, from the same palette hosts and tabs
+  already use.
 
 ### 0.8.6-ssh.2
 

@@ -39,6 +39,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { GroupDialog } from "./GroupDialog";
 import { HostDialog } from "./HostDialog";
 import { RemoteFiles } from "./RemoteFiles";
 import { RemoteGit } from "./RemoteGit";
@@ -49,7 +50,12 @@ import { emptyProfile, useRemotesStore } from "./lib/store";
 import { buildRemoteTree, profileAddress, profileLabel, uniqueName } from "./lib/tree";
 import { describeForward, findActiveForward, useTunnelStore } from "./lib/tunnels";
 import { toast } from "sonner";
-import type { ActiveForward, RemoteForward, RemoteProfile } from "./lib/types";
+import type {
+  ActiveForward,
+  RemoteForward,
+  RemoteGroup,
+  RemoteProfile,
+} from "./lib/types";
 
 type Props = {
   /** Open a terminal tab connected to this host. */
@@ -131,6 +137,7 @@ export function RemotesPanel({
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<RemoteProfile | null>(null);
   const [importing, setImporting] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<RemoteGroup | null>(null);
 
   useEffect(() => {
     void init();
@@ -330,6 +337,7 @@ export function RemotesPanel({
               activeForwards={activeForwards}
               activeWorkspaceConn={activeWorkspaceConn}
               onEdit={setEditing}
+              onEditGroup={setEditingGroup}
             />
           ))
         )}
@@ -359,6 +367,12 @@ export function RemotesPanel({
       ) : null}
       {importing ? (
         <TransferDialog onClose={() => setImporting(false)} />
+      ) : null}
+      {editingGroup ? (
+        <GroupDialog
+          group={editingGroup}
+          onClose={() => setEditingGroup(null)}
+        />
       ) : null}
     </div>
   );
@@ -569,8 +583,9 @@ function GroupSection({
   activeForwards,
   activeWorkspaceConn,
   onEdit,
+  onEditGroup,
 }: {
-  group: { id: string; name: string; collapsed: boolean } | null;
+  group: RemoteGroup | null;
   rows: RemoteProfile[];
   groups: Array<{ id: string; name: string }>;
   allNames: string[];
@@ -582,6 +597,7 @@ function GroupSection({
   activeForwards: ActiveForward[];
   activeWorkspaceConn: number | null;
   onEdit: (profile: RemoteProfile) => void;
+  onEditGroup: (group: RemoteGroup) => void;
 } & HostDragProps) {
   const store = useRemotesStore.getState();
   const collapsed = group?.collapsed ?? false;
@@ -609,6 +625,13 @@ function GroupSection({
                 strokeWidth={2}
                 className="shrink-0"
               />
+              {group.color ? (
+                <span
+                  aria-hidden
+                  className="size-1.5 shrink-0 rounded-full"
+                  style={{ background: group.color }}
+                />
+              ) : null}
               <span className="truncate">{group.name}</span>
               <span className="ml-auto tabular-nums text-muted-foreground/60">
                 {rows.length}
@@ -616,14 +639,9 @@ function GroupSection({
             </button>
           </ContextMenuTrigger>
           <ContextMenuContent className="w-44">
-            <ContextMenuItem
-              onSelect={() => {
-                const name = window.prompt("Group name", group.name);
-                if (name) void store.renameGroup(group.id, name);
-              }}
-            >
+            <ContextMenuItem onSelect={() => onEditGroup(group)}>
               <HugeiconsIcon icon={PencilEdit02Icon} size={13} />
-              Rename group
+              Edit group
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem

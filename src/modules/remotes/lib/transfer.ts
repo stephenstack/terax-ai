@@ -1,4 +1,5 @@
 import { normalizeAccent } from "@/lib/accentColors";
+import { normalizeGroupColor } from "./visuals";
 import type { TerminalCursorStyle } from "@/modules/settings/store";
 import type { TerminalAppearanceOverride } from "@/modules/terminal";
 import { nextGroupOrder, uniqueName } from "./tree";
@@ -201,11 +202,10 @@ function readGroup(value: unknown, index: number): RemoteGroup | null {
   const raw = value as Record<string, unknown>;
   const name = text(raw.name);
   if (!name) return null;
-  const color = text(raw.color);
   return {
     id: text(raw.id) ?? newId(),
     name,
-    color: color ? (normalizeAccent(color) ?? undefined) : undefined,
+    color: normalizeGroupColor(text(raw.color)),
     collapsed: flag(raw.collapsed) ?? false,
     order: whole(raw.order, 0, 1_000_000) ?? index,
   };

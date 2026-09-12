@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { ACCENT_COLORS } from "@/lib/accentColors";
 import type { RemoteProfile } from "./types";
-import { normalizeBackground, normalizeVisuals } from "./visuals";
+import {
+  normalizeBackground,
+  normalizeGroupColor,
+  normalizeVisuals,
+} from "./visuals";
 
 function profile(over: Partial<RemoteProfile>): RemoteProfile {
   return {
@@ -63,5 +68,23 @@ describe("normalizeVisuals", () => {
     expect(
       normalizeVisuals(profile({ color: "red; position: fixed" })).color,
     ).toBeUndefined();
+  });
+});
+
+describe("normalizeGroupColor", () => {
+  it("keeps a colour the picker could have produced", () => {
+    expect(normalizeGroupColor("#AABBCC")).toBe("#aabbcc");
+    expect(normalizeGroupColor(ACCENT_COLORS[0])).toBe(ACCENT_COLORS[0]);
+  });
+
+  it("treats an absent or cleared colour as no colour", () => {
+    expect(normalizeGroupColor(undefined)).toBeUndefined();
+    // The picker's clear button reports an empty string.
+    expect(normalizeGroupColor("")).toBeUndefined();
+  });
+
+  it("drops anything that could smuggle a declaration into a style", () => {
+    expect(normalizeGroupColor("red; position: fixed")).toBeUndefined();
+    expect(normalizeGroupColor("url(evil)")).toBeUndefined();
   });
 });
