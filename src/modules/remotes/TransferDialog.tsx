@@ -18,9 +18,9 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { currentWorkspaceEnv } from "@/modules/workspace";
 import { invoke } from "@tauri-apps/api/core";
 import { homeDir } from "@tauri-apps/api/path";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { readSshConfig } from "./lib/ssh-bridge";
@@ -533,14 +533,30 @@ function ExportTab({ onClose }: Props) {
     }
     setSaving(true);
     setError(null);
+    // Deliberately not the active workspace: the destination is built from the
+    // local home directory, so with a remote workspace open the file would
+    // land on the far machine at a path that only means something here.
     void invoke("fs_write_file", {
       path: target,
       content: serializeExport(profiles, groups),
-      workspace: currentWorkspaceEnv(),
       source: "remotes-export",
     })
       .then(() => {
-        toast.success("Remotes exported", { description: target });
+        toast.success("Remotes exported", {
+          description: target,
+          // Revealing rather than opening: an editor tab would read the file
+          // through the active workspace, which may point at another machine.
+          action: {
+            label: "Show in folder",
+            onClick: () => {
+              void revealItemInDir(target).catch((e) =>
+                toast.error("Could not show the file", {
+                  description: String(e),
+                }),
+              );
+            },
+          },
+        });
         onClose();
       })
       .catch((e) => setError(String(e)))

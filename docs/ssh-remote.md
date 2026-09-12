@@ -49,7 +49,9 @@ here is marked, and what happens to it is yours to choose:
 
 **Export** writes every host and group to one JSON file. Type a destination or
 take the dated default in your home directory; **Copy** puts the same content
-on the clipboard instead.
+on the clipboard instead. The file is always written to *this* machine even
+when a remote workspace is open, because the destination is a local path, and
+the toast that confirms it offers **Show in folder**.
 
 Two things deliberately stay behind. Passwords and key passphrases are never in
 an export, because Terax never stores them in a profile in the first place, so
