@@ -12,8 +12,8 @@ installs beside a stable Terax rather than replacing it:
 | --- | --- |
 | Application name | Terax SSH Preview |
 | Identifier | `io.github.stephenstack.terax.sshpreview` |
-| Version | `0.8.6-ssh.2` |
-| Git tag | `preview-v0.8.6-ssh.2` |
+| Version | `0.8.6-ssh.3` |
+| Git tag | `preview-v0.8.6-ssh.3` |
 | Platform | Windows x64 only |
 | Installer | NSIS `.exe`, per-user (no administrator rights) |
 | Code signing | none |
@@ -32,7 +32,7 @@ Everything in Terax 0.8.6, plus the SSH work this preview exists to exercise:
   the same terminal surface as a local shell. Host profiles with groups, agent /
   public key / password / keyboard-interactive authentication, `known_hosts`
   verification with trust-on-first-use prompts, per-host session and appearance
-  options, and import from `~/.ssh/config`.
+  options, and import and export of hosts and groups.
 - **Remote workspaces.** The file explorer, editor, fuzzy find, content search
   and source control panel pointed at a directory on another machine over SFTP.
   Git runs on the far side, not locally.
@@ -42,6 +42,35 @@ Everything in Terax 0.8.6, plus the SSH work this preview exists to exercise:
   default, torn down with their connection.
 - **AI agent over SSH.** The agent's `run_command` and shell tools execute on
   the connected remote host when a remote workspace is active.
+
+## Changes in each preview
+
+### 0.8.6-ssh.3
+
+- **Hosts and groups can be carried between machines.** The panel's
+  `~/.ssh/config` button is now **Import and export hosts**, opening one dialog
+  with three tabs: an OpenSSH config at a location you choose and Terax
+  remembers, a Terax export file from another instance, and an export that
+  writes one. A host already present is marked, and duplicates are skipped,
+  replaced in place, or imported as copies, whichever you pick. Groups match by
+  name, so a host joins the group you already have rather than a second one
+  beside it. See [SSH and remote workspaces](ssh-remote.md) for the detail.
+- Exports never contain passwords or key passphrases, because a profile never
+  stores them. A per-host background image is also left behind, since the image
+  lives in the instance that made the export.
+- The export confirmation offers **Show in folder**, and the file is always
+  written to the machine you are sitting at even when a remote workspace is
+  open.
+
+### 0.8.6-ssh.2
+
+- Build-channel handling proved by tests under both stable-default and preview
+  environments.
+
+### 0.8.6-ssh.1
+
+- First unofficial SSH preview: remote sessions, remote workspaces, jump hosts,
+  local port forwarding, and the AI agent over SSH.
 
 ## What is experimental
 
@@ -59,7 +88,7 @@ machines:
 
 ## Installation
 
-1. Download `Terax-SSH-Preview_0.8.6-ssh.2_x64-setup.exe` and the matching
+1. Download `Terax-SSH-Preview_0.8.6-ssh.3_x64-setup.exe` and the matching
    `.sha256` file from the release page.
 2. Verify the checksum before running anything. See below.
 3. Run the installer. It installs per-user under
@@ -75,33 +104,33 @@ leaves a stable Terax install untouched.
 ## Verifying the download
 
 The expected SHA256 is printed in the release notes and stored alongside the
-installer as `Terax-SSH-Preview_0.8.6-ssh.2_x64-setup.exe.sha256`.
+installer as `Terax-SSH-Preview_0.8.6-ssh.3_x64-setup.exe.sha256`.
 
 PowerShell:
 
 ```powershell
-Get-FileHash .\Terax-SSH-Preview_0.8.6-ssh.2_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Terax-SSH-Preview_0.8.6-ssh.3_x64-setup.exe -Algorithm SHA256
 ```
 
 Compare the printed `Hash` against the value in the release notes. Casing does
 not matter. To compare automatically instead of by eye:
 
 ```powershell
-$expected = (Get-Content .\Terax-SSH-Preview_0.8.6-ssh.2_x64-setup.exe.sha256).Split(" ")[0]
-$actual = (Get-FileHash .\Terax-SSH-Preview_0.8.6-ssh.2_x64-setup.exe -Algorithm SHA256).Hash
+$expected = (Get-Content .\Terax-SSH-Preview_0.8.6-ssh.3_x64-setup.exe.sha256).Split(" ")[0]
+$actual = (Get-FileHash .\Terax-SSH-Preview_0.8.6-ssh.3_x64-setup.exe -Algorithm SHA256).Hash
 if ($actual -ieq $expected) { "OK" } else { "MISMATCH - do not run this file" }
 ```
 
 Command Prompt, without PowerShell:
 
 ```bat
-certutil -hashfile Terax-SSH-Preview_0.8.6-ssh.2_x64-setup.exe SHA256
+certutil -hashfile Terax-SSH-Preview_0.8.6-ssh.3_x64-setup.exe SHA256
 ```
 
 Git Bash or WSL, verifying against the published file directly:
 
 ```bash
-sha256sum -c Terax-SSH-Preview_0.8.6-ssh.2_x64-setup.exe.sha256
+sha256sum -c Terax-SSH-Preview_0.8.6-ssh.3_x64-setup.exe.sha256
 ```
 
 If the hashes do not match, delete the file and do not run it.
@@ -266,7 +295,7 @@ release.
 
 Open an issue at <https://github.com/stephenstack/terax-ai/issues> and include:
 
-1. The exact version string from Settings and then About (`0.8.6-ssh.2`) and the
+1. The exact version string from Settings and then About (`0.8.6-ssh.3`) and the
    identifier shown there.
 2. Windows version (`winver`).
 3. Remote server operating system and SSH server version
