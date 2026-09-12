@@ -321,20 +321,36 @@ fn local_username() -> Option<String> {
         })
 }
 
-/// Parse `~/.ssh/config` for the import flow.
+/// The config file the import flow reads when the user has not chosen another.
+pub const DEFAULT_SSH_CONFIG_PATH: &str = "~/.ssh/config";
+
+/// Parse an OpenSSH config file for the import flow.
 ///
+/// `path` is the user-configured location, `~`-expanded here so the stored
+/// value stays portable between machines; omitting it means the default.
 /// An entry without `User` inherits the local username in `ssh`, so fill that
 /// in here rather than importing a profile that cannot connect. The parser
 /// itself stays pure and reports only what the file actually says.
 #[tauri::command]
-pub fn ssh_read_config() -> Result<Vec<config::SshConfigHost>, String> {
-    let Some(path) = dirs::home_dir().map(|h| h.join(".ssh").join("config")) else {
-        return Ok(Vec::new());
-    };
-    let contents = match std::fs::read_to_string(&path) {
+pub fn ssh_read_config(path: Option<String>) -> Result<Vec<config::SshConfigHost>, String> {
+    let requested = path
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .unwrap_or(DEFAULT_SSH_CONFIG_PATH);
+    let file = session::expand_tilde(requested);
+    let contents = match std::fs::read_to_string(&file) {
         Ok(contents) => contents,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(format!("could not read {}: {e}", path.display())),
+        // A missing default is the normal state for someone who has never used
+        // `ssh`; a missing path the user typed is a mistake worth reporting.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return if requested == DEFAULT_SSH_CONFIG_PATH {
+                Ok(Vec::new())
+            } else {
+                Err(format!("no such file: {}", file.display()))
+            };
+        }
+        Err(e) => return Err(format!("could not read {}: {e}", file.display())),
     };
     let fallback = local_username();
     Ok(config::parse_ssh_config(&contents)
@@ -346,4 +362,31 @@ pub fn ssh_read_config() -> Result<Vec<config::SshConfigHost>, String> {
             host
         })
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_a_config_from_the_configured_location() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("elsewhere.conf");
+        std::fs::write(&path, "Host web\n  HostName web.example\n  User deploy\n").expect("write");
+
+        let hosts = ssh_read_config(Some(path.to_string_lossy().into_owned())).expect("read");
+
+        assert_eq!(hosts.len(), 1);
+        assert_eq!(hosts[0].hostname.as_deref(), Some("web.example"));
+    }
+
+    #[test]
+    fn a_missing_chosen_path_is_an_error_but_a_missing_default_is_not() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let missing = dir.path().join("nope.conf");
+
+        assert!(ssh_read_config(Some(missing.to_string_lossy().into_owned())).is_err());
+        // Empty means "use the default", which is allowed to be absent.
+        assert!(ssh_read_config(Some("  ".into())).is_ok());
+    }
 }

@@ -18,6 +18,7 @@ import {
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import {
+  ArrowDataTransferHorizontalIcon,
   ArrowDown01Icon,
   ArrowRight01Icon,
   CloudServerIcon,
@@ -43,7 +44,7 @@ import { RemoteFiles } from "./RemoteFiles";
 import { RemoteGit } from "./RemoteGit";
 import { useFollowTerminal, useRemoteBrowserStore } from "./lib/browser";
 import { useRemoteSections } from "./lib/sections";
-import { ImportConfigDialog } from "./ImportConfigDialog";
+import { TransferDialog } from "./TransferDialog";
 import { emptyProfile, useRemotesStore } from "./lib/store";
 import { buildRemoteTree, profileAddress, profileLabel, uniqueName } from "./lib/tree";
 import { describeForward, findActiveForward, useTunnelStore } from "./lib/tunnels";
@@ -357,7 +358,7 @@ export function RemotesPanel({
         />
       ) : null}
       {importing ? (
-        <ImportConfigDialog onClose={() => setImporting(false)} />
+        <TransferDialog onClose={() => setImporting(false)} />
       ) : null}
     </div>
   );
@@ -385,8 +386,8 @@ function Header({
           onClick={onAddGroup}
         />
         <IconAction
-          icon={CloudServerIcon}
-          label="Import from ~/.ssh/config"
+          icon={ArrowDataTransferHorizontalIcon}
+          label="Import and export hosts"
           onClick={onImport}
         />
       </div>
@@ -861,8 +862,8 @@ function EmptyState({
         className="text-muted-foreground/50"
       />
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        No remote hosts yet. Add one, or import the hosts already in your
-        <code className="mx-1">~/.ssh/config</code>.
+        No remote hosts yet. Add one, or import them from your
+        <code className="mx-1">~/.ssh/config</code> or another Terax instance.
       </p>
       <div className="mt-1 flex gap-2">
         <Button size="sm" variant="outline" onClick={onAddHost}>

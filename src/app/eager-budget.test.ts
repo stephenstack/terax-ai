@@ -20,7 +20,8 @@ function heavyEagerHits(entry: string): string[] {
 const LAZY_SURFACES = [
   "src/modules/remotes/RemotesPanel.tsx",
   "src/modules/remotes/HostDialog.tsx",
-  "src/modules/remotes/ImportConfigDialog.tsx",
+  "src/modules/remotes/TransferDialog.tsx",
+  "src/modules/remotes/lib/transfer.ts",
   "src/modules/remotes/RemotePrompts.tsx",
 ];
 

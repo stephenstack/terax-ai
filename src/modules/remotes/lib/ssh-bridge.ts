@@ -118,6 +118,7 @@ export function agentIdentities(): Promise<string[]> {
   return invoke<string[]>("ssh_agent_identities");
 }
 
-export function readSshConfig(): Promise<SshConfigHost[]> {
-  return invoke<SshConfigHost[]>("ssh_read_config");
+/** `path` is the user-configured location; `~` is expanded on the Rust side. */
+export function readSshConfig(path?: string): Promise<SshConfigHost[]> {
+  return invoke<SshConfigHost[]>("ssh_read_config", { path: path ?? null });
 }

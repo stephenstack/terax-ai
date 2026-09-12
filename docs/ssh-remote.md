@@ -18,15 +18,50 @@ Right-click a host for:
 
 Nothing connects until you ask it to.
 
-### Importing what you already have
+### Moving hosts in and out
 
-**Import from ~/.ssh/config** reads your OpenSSH config and offers every host
-in it. The file is only ever read, never written. Wildcard blocks such as
-`Host *` are applied as defaults rather than imported as hosts, and resolution
-follows OpenSSH's first-obtained-value-wins rule, so what you get should match
-what `ssh` would do. `IdentityFile`, `ProxyJump`, `User`, `Port`,
-`ConnectTimeout`, `ServerAliveInterval` and `Compression` come across. A host
-with no `User` inherits your local username, as `ssh` does.
+**Import and export hosts** in the panel header opens one dialog with three
+tabs. Every list there is a set of checkboxes, so you choose what comes across
+rather than taking the lot.
+
+**SSH config** reads an OpenSSH config and offers every host in it. The
+location is a field, defaulting to `~/.ssh/config` and remembered once you
+change it, so a config kept somewhere else works without symlinking. The file
+is only ever read, never written. Wildcard blocks such as `Host *` are applied
+as defaults rather than imported as hosts, and resolution follows OpenSSH's
+first-obtained-value-wins rule, so what you get should match what `ssh` would
+do. `IdentityFile`, `ProxyJump`, `User`, `Port`, `ConnectTimeout`,
+`ServerAliveInterval` and `Compression` come across. A host with no `User`
+inherits your local username, as `ssh` does. A host already saved is not
+offered again, so importing twice does not produce duplicates.
+
+**Import** loads a file written by Export on another instance. Drop it on the
+dialog or pick it with the file button. Groups are matched by name, so a host
+lands in the group you already have rather than a second one beside it, and an
+exported group that held no hosts is carried over too. A host that is already
+here is marked, and what happens to it is yours to choose:
+
+- **Skip hosts already here** - the default; nothing you have is touched.
+- **Replace hosts already here** - the incoming version wins, in place. The
+  local id is kept, so anything already pointing at that host keeps resolving.
+- **Import everything as a copy** - every host comes in beside what you have,
+  renamed so the two are distinguishable.
+
+**Export** writes every host and group to one JSON file. Type a destination or
+take the dated default in your home directory; **Copy** puts the same content
+on the clipboard instead.
+
+Two things deliberately stay behind. Passwords and key passphrases are never in
+an export, because Terax never stores them in a profile in the first place, so
+you are prompted the first time you connect on the new machine. A per-host
+background image stays behind too: the image lives in the source instance's
+blob store and its id would resolve to nothing elsewhere. Key file *paths* do
+come across, so a host authenticating with a key needs that key present at the
+same path on the new machine.
+
+An import is only as trustworthy as the file it came from. Every field is
+revalidated on the way in, and a host can carry a startup command, so read the
+list before importing a file someone sent you.
 
 ## Authentication
 

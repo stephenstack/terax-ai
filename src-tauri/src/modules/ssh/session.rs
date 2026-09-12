@@ -287,7 +287,7 @@ async fn load_key(
     }
 }
 
-fn expand_tilde(path: &str) -> std::path::PathBuf {
+pub fn expand_tilde(path: &str) -> std::path::PathBuf {
     if let Some(rest) = path.strip_prefix("~/") {
         if let Some(home) = dirs::home_dir() {
             return home.join(rest);
